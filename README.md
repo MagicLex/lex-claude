@@ -36,18 +36,29 @@ claude --plugin-dir /path/to/lex-claude
 ## CLI
 
 ```
-lc install                                         # bootstrap (idempotent)
+lc install [--yes]                                 # bootstrap (idempotent). Prompts before overwriting existing files.
 lc update                                          # git pull + sync rules + redeploy
+lc version                                         # print install version (v<commit-count> + date)
 lc identity                                        # list, active marked *
 lc identity <name>                                 # switch (global)
 lc identity new --name <n> --desc "<persona>"      # create identity (persona + shared rules)
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
-lc doctor                                          # check symlinks, hook, skills
+lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
 
-**Auto-update**: on every command (except `install` / `update` / `rules` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
+**Auto-update**: on every command (except `install` / `update` / `rules` / `version` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
+
+## Kill switches (env vars)
+
+Three escape hatches if you want to neutralise a piece without uninstalling.
+
+- `LEX_CLAUDE_DISABLE=1` — hook.sh exits early; nothing gets injected at SessionStart. Useful when debugging context bloat or comparing with/without the hook.
+- `LEX_CLAUDE_NO_AUTO_UPDATE=1` — disables the daily `git pull` + re-exec on `lc <cmd>`. Use when you want frozen behaviour (CI runs, shared machines, long-running scripts).
+- `LEX_CLAUDE_YES=1` — equivalent to `lc install --yes`; skips the destructive-overwrite prompt. Use only when you've read the warning above and accept it.
+
+Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
 
 ## Identity architecture
 

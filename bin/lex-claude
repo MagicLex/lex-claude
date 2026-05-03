@@ -13,6 +13,7 @@ BIN_ALIAS="$BIN_DIR/lc"
 die() { echo "error: $*" >&2; exit 1; }
 
 auto_update() {
+  [ "${LEX_CLAUDE_NO_AUTO_UPDATE:-}" = "1" ] && return 0
   [ -d "$INSTALL_DIR/.git" ] || return 0
   local marker="$INSTALL_DIR/.last-update-check"
   local now last=0 diff
@@ -38,7 +39,7 @@ usage() {
 lex-claude — global Claude Code config manager
 
 Usage:
-  lex-claude install            Bootstrap: clone, symlink CLAUDE.md, wire hook, deploy skills.
+  lex-claude install [--yes]    Bootstrap: clone, symlink CLAUDE.md, wire hook, deploy skills. Prompts before overwriting existing files; --yes / LEX_CLAUDE_YES=1 skips the prompt.
   lex-claude update             Pull latest and re-deploy.
   lex-claude identity                                List identities (active marked *).
   lex-claude identity <name>                         Switch active identity.
@@ -128,6 +129,29 @@ deploy() {
 }
 
 cmd_install() {
+  local yes=0
+  for arg in "$@"; do
+    case "$arg" in --yes|-y) yes=1 ;; esac
+  done
+  [ "${LEX_CLAUDE_YES:-}" = "1" ] && yes=1
+
+  local needs_prompt=0
+  [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ] && needs_prompt=1
+  [ -f "$SETTINGS" ] && needs_prompt=1
+
+  if [ $needs_prompt -eq 1 ] && [ $yes -eq 0 ]; then
+    echo "lc install will modify these existing files (backups will be created):"
+    [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ] && echo "  - $CLAUDE_DIR/CLAUDE.md → backup + replace with symlink to managed identity"
+    [ -f "$SETTINGS" ] && echo "  - $SETTINGS → backup + jq-patch SessionStart hook"
+    if [ -t 0 ]; then
+      printf "continue? [y/N] "
+      local r; read -r r
+      case "$r" in y|Y|yes) ;; *) echo "aborted."; exit 0 ;; esac
+    else
+      die "not a TTY. Pass --yes (or LEX_CLAUDE_YES=1) to confirm."
+    fi
+  fi
+
   if [ -d "$INSTALL_DIR/.git" ]; then
     echo "already installed at $INSTALL_DIR — pulling latest"
     git -C "$INSTALL_DIR" pull --ff-only

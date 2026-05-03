@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # SessionStart hook — loads global identity + project docs into context.
 # Wire it via ~/.claude/settings.json (see README).
+# Kill switch: LEX_CLAUDE_DISABLE=1 → exit early without touching context.
+# Heartbeat: writes ~/.claude/lex-claude/.last-hook (epoch) on successful run, for outside observability.
+
+[ "${LEX_CLAUDE_DISABLE:-}" = "1" ] && exit 0
 
 if [ -f "$HOME/.claude/CLAUDE.md" ]; then
   printf '\n===== ~/.claude/CLAUDE.md (global) =====\n'
@@ -16,3 +20,5 @@ for f in CLAUDE.md docs/PHILOSOPHY.md docs/CONTEXT.md docs/PRINCIPLES.md docs/IN
 done
 
 printf '\n---\nThe rules above are loaded in context (global CLAUDE.md + project CLAUDE.md + docs). Acknowledge them to the user concisely — do not say you will read them, you already have.\n'
+
+date +%s > "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true
