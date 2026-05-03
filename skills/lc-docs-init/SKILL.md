@@ -1,6 +1,6 @@
 ---
 name: lc-docs-init
-description: Scaffold the lex-claude doc layout (PHILOSOPHY, PRINCIPLES, INVARIANTS, OPS, TODO) in $CLAUDE_PROJECT_DIR/docs/. Creates only missing files with minimal headers — never overwrites. Use when bootstrapping documentation in a new or undocumented project.
+description: Scaffold the lex-claude doc layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) in $CLAUDE_PROJECT_DIR/docs/. Creates only missing files with minimal headers, never overwrites. Use when bootstrapping documentation in a new or undocumented project, or when the user says "scaffold our docs", "set up the docs structure", "we need docs in this project", or "give me a docs skeleton".
 ---
 
 Create the standard doc layout in `$CLAUDE_PROJECT_DIR/docs/`. **Never overwrite** — only create files that are missing. Do not fill content beyond the header — that's the user's job, this skill only scaffolds.
@@ -16,6 +16,28 @@ Files and headers (today's date in `TODO.md` only):
   What we're building, in one sentence.
 
   Why it exists. Who it's for. What it explicitly is not.
+  ```
+
+- `docs/CONTEXT.md`
+  ```
+  # Project Glossary
+
+  Shared language for this project. The agent (and new humans) read this to decode jargon consistently. Add a term when it appears in conversation more than twice.
+
+  ## Terms
+
+  **<Term>**
+  What it is, in one or two sentences.
+  _Avoid_: alternative names that should not be used here.
+
+  ## Relationships
+
+  - A **<Term A>** holds many **<Term B>**.
+  - A **<Term B>** belongs to one **<Term A>**.
+
+  ## Flagged ambiguities
+
+  Terms that were used inconsistently and have been resolved. Keep entries so future readers see the resolution.
   ```
 
 - `docs/PRINCIPLES.md`

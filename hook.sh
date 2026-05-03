@@ -7,7 +7,7 @@ if [ -f "$HOME/.claude/CLAUDE.md" ]; then
   cat "$HOME/.claude/CLAUDE.md"
 fi
 
-for f in CLAUDE.md docs/PHILOSOPHY.md docs/PRINCIPLES.md docs/INVARIANTS.md docs/OPS.md docs/TODO.md; do
+for f in CLAUDE.md docs/PHILOSOPHY.md docs/CONTEXT.md docs/PRINCIPLES.md docs/INVARIANTS.md docs/OPS.md docs/TODO.md; do
   p="${CLAUDE_PROJECT_DIR:-$PWD}/$f"
   if [ -f "$p" ]; then
     printf '\n===== %s =====\n' "$f"

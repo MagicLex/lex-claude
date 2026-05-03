@@ -1,6 +1,6 @@
 ---
 name: lc
-description: Surface the current lex-claude state — active identity, installed skills, install health, available CLI subcommands. Use when the user types /lc or asks what's loaded globally.
+description: Surface current lex-claude state. Active identity, installed skills, install health (doctor), CLI surface, version. Use when the user types /lc, asks what's loaded globally, asks which lex-claude version is running, or wants a sanity check that the install is healthy.
 ---
 
 Run these and report concisely:

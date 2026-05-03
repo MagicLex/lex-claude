@@ -1,6 +1,6 @@
 ---
 name: lc-docs-cleanup
-description: Audit the project's docs/ for staleness, archives, and dead references. Reports what to prune, merge, or refresh — never edits without explicit user confirmation. Use periodically to keep docs lean.
+description: Audit the project's docs/ for staleness, archive sections, dead references, duplicates, and marketing drift. Reports a punch list grouped by DELETE / MERGE / REFRESH / TRIM, never edits without explicit user confirmation. Use periodically to keep docs lean, or when the user says "are our docs stale", "clean up the documentation", "audit the docs", or "the docs/ folder feels heavy".
 ---
 
 Pass the project's docs under these checks. For each finding, report `file:line` + one-line action. Do **not** edit anything — output is a punch list, the user picks what to act on.

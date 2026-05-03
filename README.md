@@ -81,6 +81,7 @@ $CLAUDE_PROJECT_DIR/
 ├── CLAUDE.md                ← project-specific rules (optional)
 └── docs/
     ├── PHILOSOPHY.md
+    ├── CONTEXT.md
     ├── PRINCIPLES.md
     ├── INVARIANTS.md
     ├── OPS.md

@@ -1,6 +1,6 @@
 ---
 name: lc-invariants
-description: Audit a project against universal production invariants (errors, secrets, tenant isolation, mutations feedback, migrations, containers, mocks, deploy, billing, public tokens, upstream-failure handling). Use during dev review or before merging significant changes.
+description: Audit a project against 14 universal production invariants. Standardised errors, secrets safety, tenant isolation, mutation feedback, idempotent migrations, non-root containers, no mocks or hardcoded values, manual deploy, billing chain, hashed public tokens, upstream-failure hides not stales, stabilised patterns promoted, plus a host-injected kill-switch check. Use when the user asks for an audit, a pre-merge review, a production-readiness check, says "is this ready to ship", "did we forget anything", or "review this before I merge".
 ---
 
 Pass the current project under these checks. For each: search the code, report **PASS / FAIL / N/A** with a one-line reason and a file ref. Don't fix unless asked.
