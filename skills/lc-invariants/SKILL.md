@@ -1,6 +1,6 @@
 ---
 name: lc-invariants
-description: Audit a project against universal production invariants (errors, secrets, tenant isolation, mutations feedback, migrations, containers, mocks, deploy). Use during dev review or before merging significant changes.
+description: Audit a project against universal production invariants (errors, secrets, tenant isolation, mutations feedback, migrations, containers, mocks, deploy, billing, public tokens, upstream-failure handling). Use during dev review or before merging significant changes.
 ---
 
 Pass the current project under these checks. For each: search the code, report **PASS / FAIL / N/A** with a one-line reason and a file ref. Don't fix unless asked.
@@ -15,5 +15,12 @@ Pass the current project under these checks. For each: search the code, report *
 8. **Stale-state reapers** — long-lived state (jobs, sessions, heartbeats) has periodic cleanup with thresholds.
 9. **Destructive actions explicit** — confirmation step + reversibility (Reset / undo) where data can be lost.
 10. **Manual deploy** — no auto-deploy webhooks; rebuilds scoped to changed services.
+11. **Billing & plan resolution** — documented chain (`plan_override → subscription → free`), instant suspension check, payment provider acts as Merchant of Record (we never handle card data).
+12. **Public tokens hashed** — share/public links looked up by SHA256 hash, never plaintext; secret shown once at creation.
+13. **Upstream failure → hide, not stale** — when a data source or background job fails past its threshold (heartbeat lost, crawler down, sync errored), the read path **hides** the affected entity. Never serve stale data labelled as fresh.
 
-End with a one-line verdict: green if all pass, red with the failed numbers if any fail.
+**Conditional — host-injected systems only** (agents, collectors, hooks, sidecars):
+
+14. **Kill switch & silent failure** — env-var disable without restart (`<NAME>_DISABLE=1`); on its own failure the injected component **silently skips**, never crashes the host process; heartbeat written to local disk for outside observability.
+
+End with a one-line verdict: green if all applicable pass, red with the failed numbers if any fail.

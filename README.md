@@ -73,9 +73,11 @@ All optional — only what exists is loaded.
 All custom skills are prefixed `lc-` to avoid drowning in native skills / other plugins. Exception: `lc` itself, which is also the name of the `/lc` slash command.
 
 - `lc` — surface the current lex-claude state (active identity, installed skills, doctor). Invoke via `/lc`.
-- `lc-invariants` — audit a project against universal invariants (standardized errors, tenant isolation, secrets, migrations, containers, mocks, etc.). Use during dev or before merge.
+- `lc-invariants` — audit a project against universal invariants (errors, tenant isolation, secrets, migrations, containers, mocks, billing, public tokens, upstream-failure handling, etc.). Use during dev or before merge.
 - `lc-review-project` — read project docs and produce a sharp summary (state, next steps).
 - `lc-exploration` — adopt the mindset of a senior in a domain you give it, to explore.
+- `lc-docs-init` — scaffold the standard `docs/` layout (PHILOSOPHY, PRINCIPLES, INVARIANTS, OPS, TODO) with empty headers. Skips existing files. Use to bootstrap a project.
+- `lc-docs-cleanup` — audit the project's docs for staleness, archives, dead refs, and duplicates. Reports a punch list, never edits.
 
 ## Repo structure
 
@@ -90,7 +92,9 @@ lex-claude/
 │   ├── lc/SKILL.md
 │   ├── lc-invariants/SKILL.md
 │   ├── lc-review-project/SKILL.md
-│   └── lc-exploration/SKILL.md
+│   ├── lc-exploration/SKILL.md
+│   ├── lc-docs-init/SKILL.md
+│   └── lc-docs-cleanup/SKILL.md
 └── README.md
 ```
 
