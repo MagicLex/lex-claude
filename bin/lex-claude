@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# lex-claude — manage global Claude Code config (identity, hook, skills).
+set -euo pipefail
+
+REPO_URL="${LEX_CLAUDE_REPO:-https://github.com/MagicLex/lex-claude.git}"
+INSTALL_DIR="$HOME/.claude/lex-claude"
+CLAUDE_DIR="$HOME/.claude"
+SETTINGS="$CLAUDE_DIR/settings.json"
+DEFAULT_IDENTITY="jeanjean"
+BIN_DIR="$HOME/.local/bin"
+BIN_LINK="$BIN_DIR/lex-claude"
+BIN_ALIAS="$BIN_DIR/lc"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+auto_update() {
+  [ -d "$INSTALL_DIR/.git" ] || return 0
+  local marker="$INSTALL_DIR/.last-update-check"
+  local now last=0 diff
+  now=$(date +%s)
+  [ -f "$marker" ] && last=$(cat "$marker" 2>/dev/null || echo 0)
+  diff=$((now - last))
+  [ "$diff" -lt 86400 ] && return 0
+  echo "$now" > "$marker"
+  git -C "$INSTALL_DIR" fetch --quiet origin 2>/dev/null || return 0
+  local local_sha remote_sha
+  local_sha=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || return 0
+  remote_sha=$(git -C "$INSTALL_DIR" rev-parse '@{u}' 2>/dev/null) || return 0
+  [ "$local_sha" = "$remote_sha" ] && return 0
+  echo "lex-claude: newer version on origin — updating..."
+  git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict) — run 'lc update' manually" >&2; return 0; }
+  deploy >/dev/null
+  echo "lex-claude: updated, re-running."
+  exec "$INSTALL_DIR/bin/lex-claude" "$@"
+}
+
+usage() {
+  cat <<EOF
+lex-claude — global Claude Code config manager
+
+Usage:
+  lex-claude install            Bootstrap: clone, symlink CLAUDE.md, wire hook, deploy skills.
+  lex-claude update             Pull latest and re-deploy.
+  lex-claude identity                                List identities (active marked *).
+  lex-claude identity <name>                         Switch active identity.
+  lex-claude identity new --name <n> --desc "<d>"    Create identity (persona + shared rules).
+  lex-claude identity new --name <n> --empty         Create identity without shared rules.
+  lex-claude rules sync                              Re-inject RULES.md into all managed identities.
+  lex-claude doctor             Sanity-check the install.
+EOF
+}
+
+wire_hook() {
+  local cmd="bash $INSTALL_DIR/hook.sh"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "warn: jq missing — add hook manually to $SETTINGS (command: $cmd)"
+    return
+  fi
+  [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
+  cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
+  jq --arg cmd "$cmd" '
+    .hooks //= {} |
+    .hooks.SessionStart //= [] |
+    .hooks.SessionStart = [
+      .hooks.SessionStart[]
+      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook")) | not))
+    ] |
+    .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
+  ' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+  echo "hook: wired"
+}
+
+deploy() {
+  mkdir -p "$CLAUDE_DIR/skills" "$BIN_DIR"
+
+  sync_rules
+
+  local target="$CLAUDE_DIR/CLAUDE.md"
+  local cur; cur=$(readlink "$target" 2>/dev/null || true)
+  if [[ "$cur" == "$INSTALL_DIR/identities/"*.md ]] && [ -e "$cur" ]; then
+    echo "identity: $(basename "$cur" .md) (kept)"
+  else
+    [ -e "$target" ] && [ ! -L "$target" ] && cp "$target" "$target.bak.$(date +%s)" && echo "backup: $target.bak.*"
+    ln -sfn "$INSTALL_DIR/identities/$DEFAULT_IDENTITY.md" "$target"
+    echo "identity: $DEFAULT_IDENTITY (linked)"
+  fi
+
+  for skill in "$INSTALL_DIR"/skills/*/; do
+    [ -d "$skill" ] || continue
+    local name; name=$(basename "$skill")
+    ln -sfn "$skill" "$CLAUDE_DIR/skills/$name"
+    echo "skill: $name"
+  done
+
+  wire_hook
+
+  ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_LINK"
+  ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
+  echo "cli: $BIN_LINK (alias: lc)"
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) echo "warn: $BIN_DIR not in PATH — add: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+  esac
+}
+
+cmd_install() {
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "already installed at $INSTALL_DIR — pulling latest"
+    git -C "$INSTALL_DIR" pull --ff-only
+  else
+    mkdir -p "$(dirname "$INSTALL_DIR")"
+    git clone "$REPO_URL" "$INSTALL_DIR"
+  fi
+  deploy
+  echo "done. open a new Claude Code session to load."
+}
+
+cmd_update() {
+  [ -d "$INSTALL_DIR/.git" ] || die "not installed — run: lex-claude install"
+  git -C "$INSTALL_DIR" pull --ff-only
+  deploy
+  echo "updated."
+}
+
+sync_rules() {
+  [ -f "$INSTALL_DIR/RULES.md" ] || return 0
+  local f n=0
+  for f in "$INSTALL_DIR"/identities/*.md; do
+    [ -f "$f" ] || continue
+    grep -q '^<!-- LC_RULES_BEGIN -->' "$f" || continue
+    {
+      awk '/^<!-- LC_RULES_BEGIN -->/{exit} {print}' "$f"
+      printf '<!-- LC_RULES_BEGIN -->\n'
+      cat "$INSTALL_DIR/RULES.md"
+      printf '<!-- LC_RULES_END -->\n'
+      awk 'flag{print} /^<!-- LC_RULES_END -->/{flag=1}' "$f"
+    } > "$f.tmp" && mv "$f.tmp" "$f"
+    n=$((n+1))
+  done
+  echo "rules: synced into $n identit$([ $n -eq 1 ] && echo y || echo ies)"
+}
+
+identity_new() {
+  local name="" desc="" empty=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name|-name) name="${2:-}"; shift 2 ;;
+      --desc|-desc) desc="${2:-}"; shift 2 ;;
+      --empty|--force-empty) empty=1; shift ;;
+      *) die "unknown flag: $1 (expected --name/--desc/--empty)" ;;
+    esac
+  done
+  [ -n "$name" ] || die "missing --name"
+  [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || die "name must match [a-zA-Z0-9_-]+"
+  local file="$INSTALL_DIR/identities/$name.md"
+  [ -e "$file" ] && die "identity '$name' already exists at $file"
+
+  if [ $empty -eq 1 ]; then
+    {
+      printf 'You are %s.' "$name"
+      [ -n "$desc" ] && printf ' %s' "$desc"
+      printf '\n'
+    } > "$file"
+    echo "created (empty, no shared rules): $file"
+  else
+    [ -n "$desc" ] || die "missing --desc (or use --empty)"
+    {
+      printf 'You are %s. %s\n\n' "$name" "$desc"
+      printf '<!-- LC_RULES_BEGIN -->\n'
+      cat "$INSTALL_DIR/RULES.md"
+      printf '<!-- LC_RULES_END -->\n'
+    } > "$file"
+    echo "created with shared rules: $file"
+  fi
+  echo "next:   \$EDITOR $file"
+  echo "switch: lc identity $name"
+
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    if git -C "$INSTALL_DIR" add "identities/$name.md" \
+       && git -C "$INSTALL_DIR" commit -q -m "add identity: $name" 2>/dev/null; then
+      if git -C "$INSTALL_DIR" push -q 2>/dev/null; then
+        echo "git:    committed + pushed to origin"
+      else
+        echo "git:    committed locally (push failed — no remote perms? run 'git -C $INSTALL_DIR push' manually)"
+      fi
+    fi
+  fi
+}
+
+cmd_rules() {
+  case "${1:-}" in
+    sync) sync_rules ;;
+    "") sync_rules ;;
+    *) die "unknown rules subcommand: $1 (expected: sync)" ;;
+  esac
+}
+
+cmd_identity() {
+  local target="$CLAUDE_DIR/CLAUDE.md"
+  case "${1:-}" in
+    "")
+      local cur; cur=$(readlink "$target" 2>/dev/null || true)
+      for f in "$INSTALL_DIR"/identities/*.md; do
+        [ -e "$f" ] || continue
+        local n; n=$(basename "$f" .md)
+        [ "$cur" = "$f" ] && echo "* $n" || echo "  $n"
+      done
+      return
+      ;;
+    new)
+      shift; identity_new "$@"
+      return
+      ;;
+  esac
+  local src="$INSTALL_DIR/identities/$1.md"
+  [ -f "$src" ] || die "identity '$1' not found in $INSTALL_DIR/identities/"
+  ln -sfn "$src" "$target"
+  echo "switched to: $1"
+}
+
+cmd_doctor() {
+  local ok=1
+  if [ -L "$CLAUDE_DIR/CLAUDE.md" ] && [ -e "$CLAUDE_DIR/CLAUDE.md" ]; then
+    echo "ok    CLAUDE.md → $(readlink "$CLAUDE_DIR/CLAUDE.md")"
+  else
+    echo "fail  CLAUDE.md not linked"; ok=0
+  fi
+  for skill in "$INSTALL_DIR"/skills/*/; do
+    [ -d "$skill" ] || continue
+    local name; name=$(basename "$skill")
+    [ -L "$CLAUDE_DIR/skills/$name" ] && echo "ok    skill $name" || { echo "fail  skill $name"; ok=0; }
+  done
+  grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
+  [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
+  [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
+  [ $ok -eq 1 ] && echo "all good." || { echo "issues — run: lex-claude install"; exit 1; }
+}
+
+case "${1:-}" in
+  install|update|rules|-h|-help|--help|help|"") ;;
+  *) auto_update "$@" ;;
+esac
+
+case "${1:-}" in
+  install)  shift; cmd_install "$@" ;;
+  update)   shift; cmd_update "$@" ;;
+  identity) shift; cmd_identity "$@" ;;
+  rules)    shift; cmd_rules "$@" ;;
+  doctor)   shift; cmd_doctor "$@" ;;
+  -h|-help|--help|help|"") usage ;;
+  *) usage; exit 1 ;;
+esac
