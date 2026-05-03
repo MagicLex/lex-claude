@@ -46,7 +46,16 @@ Usage:
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities.
   lex-claude doctor             Sanity-check the install.
+  lex-claude version            Print install commit (short SHA + date).
 EOF
+}
+
+cmd_version() {
+  [ -d "$INSTALL_DIR/.git" ] || die "not a git install ($INSTALL_DIR has no .git)"
+  local sha date
+  sha=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null) || die "cannot read HEAD"
+  date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null) || date="?"
+  echo "lex-claude $sha ($date)"
 }
 
 wire_hook() {
@@ -233,8 +242,35 @@ cmd_identity() {
   echo "switched to: $1"
 }
 
+ensure_path_in_rc() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) echo "ok    PATH includes $BIN_DIR"; return 0 ;;
+  esac
+  local rc=""
+  case "$(basename "${SHELL:-}")" in
+    zsh)  rc="$HOME/.zshrc" ;;
+    bash) rc="$HOME/.bashrc" ;;
+    *) echo "warn  unknown shell ($SHELL) — add manually: export PATH=\"\$HOME/.local/bin:\$PATH\""; return 1 ;;
+  esac
+  local line='export PATH="$HOME/.local/bin:$PATH"'
+  if [ -f "$rc" ] && grep -Fq "$line" "$rc"; then
+    echo "ok    PATH export already in $rc — re-source it: source $rc"
+    return 0
+  fi
+  printf '\n# added by lex-claude\n%s\n' "$line" >> "$rc"
+  echo "fix   appended PATH export to $rc — re-source it: source $rc"
+}
+
 cmd_doctor() {
   local ok=1
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    local sha date
+    sha=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')
+    date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null || echo '?')
+    echo "ok    version $sha ($date)"
+  else
+    echo "warn  $INSTALL_DIR has no .git — version unknown"
+  fi
   if [ -L "$CLAUDE_DIR/CLAUDE.md" ] && [ -e "$CLAUDE_DIR/CLAUDE.md" ]; then
     echo "ok    CLAUDE.md → $(readlink "$CLAUDE_DIR/CLAUDE.md")"
   else
@@ -248,11 +284,12 @@ cmd_doctor() {
   grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
   [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
   [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
+  ensure_path_in_rc || ok=0
   [ $ok -eq 1 ] && echo "all good." || { echo "issues — run: lex-claude install"; exit 1; }
 }
 
 case "${1:-}" in
-  install|update|rules|-h|-help|--help|help|"") ;;
+  install|update|rules|version|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -262,6 +299,7 @@ case "${1:-}" in
   identity) shift; cmd_identity "$@" ;;
   rules)    shift; cmd_rules "$@" ;;
   doctor)   shift; cmd_doctor "$@" ;;
+  version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
   *) usage; exit 1 ;;
 esac
