@@ -1,5 +1,5 @@
 ---
-name: invariants
+name: lc-invariants
 description: Audit a project against universal production invariants (errors, secrets, tenant isolation, mutations feedback, migrations, containers, mocks, deploy). Use during dev review or before merging significant changes.
 ---
 

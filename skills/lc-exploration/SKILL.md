@@ -1,5 +1,5 @@
 ---
-name: exploration
+name: lc-exploration
 description: Explore an unfamiliar topic, codebase or domain by adopting the mindset of a senior professional in that field.
 ---
 

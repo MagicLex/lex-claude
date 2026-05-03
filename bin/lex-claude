@@ -85,6 +85,15 @@ deploy() {
     echo "identity: $DEFAULT_IDENTITY (linked)"
   fi
 
+  for link in "$CLAUDE_DIR/skills/"*; do
+    [ -L "$link" ] || continue
+    local target; target=$(readlink "$link")
+    [[ "$target" == "$INSTALL_DIR/skills/"* ]] || continue
+    [ -e "$target" ] && continue
+    rm "$link"
+    echo "skill: removed stale $(basename "$link")"
+  done
+
   for skill in "$INSTALL_DIR"/skills/*/; do
     [ -d "$skill" ] || continue
     local name; name=$(basename "$skill")

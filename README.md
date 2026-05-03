@@ -70,10 +70,12 @@ Tous optionnels — seul ce qui existe est chargé.
 
 ## Skills inclus
 
-- `invariants` — audite un projet contre les invariants universels (erreurs standardisées, isolation tenant, secrets, migrations, containers, mocks, etc.). Utiliser pendant le dev ou avant merge.
-- `lc` — surface l'état lex-claude courant (identité active, skills installés, doctor) à Claude. Invocable via `/lc`.
-- `review-project` — lit la doc projet et produit un résumé incisif (état, prochaines étapes).
-- `exploration` — adopte la posture d'un senior du domaine que tu lui donnes pour explorer.
+Tous les skills perso sont préfixés `lc-` pour ne pas se noyer dans les skills natifs / autres plugins. Exception : `lc` lui-même, qui est aussi le nom de la commande slash `/lc`.
+
+- `lc` — surface l'état lex-claude courant (identité active, skills installés, doctor). Invocable via `/lc`.
+- `lc-invariants` — audite un projet contre les invariants universels (erreurs standardisées, isolation tenant, secrets, migrations, containers, mocks, etc.). Utiliser pendant le dev ou avant merge.
+- `lc-review-project` — lit la doc projet et produit un résumé incisif (état, prochaines étapes).
+- `lc-exploration` — adopte la posture d'un senior du domaine que tu lui donnes pour explorer.
 
 ## Structure du repo
 
@@ -85,10 +87,10 @@ lex-claude/
 ├── identities/
 │   └── jeanjean.md              ← persona + bloc rules synced
 ├── skills/
-│   ├── invariants/SKILL.md
 │   ├── lc/SKILL.md
-│   ├── review-project/SKILL.md
-│   └── exploration/SKILL.md
+│   ├── lc-invariants/SKILL.md
+│   ├── lc-review-project/SKILL.md
+│   └── lc-exploration/SKILL.md
 └── README.md
 ```
 

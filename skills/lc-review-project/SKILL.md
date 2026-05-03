@@ -1,5 +1,5 @@
 ---
-name: review-project
+name: lc-review-project
 description: Read project docs (CLAUDE.md + docs/*) and produce a sharp summary of state and next actions.
 ---
 
