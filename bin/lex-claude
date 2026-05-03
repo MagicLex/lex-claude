@@ -46,16 +46,16 @@ Usage:
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities.
   lex-claude doctor             Sanity-check the install.
-  lex-claude version            Print install commit (short SHA + date).
+  lex-claude version            Print install version (commit count + date).
 EOF
 }
 
 cmd_version() {
   [ -d "$INSTALL_DIR/.git" ] || die "not a git install ($INSTALL_DIR has no .git)"
-  local sha date
-  sha=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null) || die "cannot read HEAD"
+  local n date
+  n=$(git -C "$INSTALL_DIR" rev-list --count HEAD 2>/dev/null) || die "cannot read HEAD"
   date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null) || date="?"
-  echo "lex-claude $sha ($date)"
+  echo "lex-claude v$n ($date)"
 }
 
 wire_hook() {
@@ -264,10 +264,10 @@ ensure_path_in_rc() {
 cmd_doctor() {
   local ok=1
   if [ -d "$INSTALL_DIR/.git" ]; then
-    local sha date
-    sha=$(git -C "$INSTALL_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')
+    local n date
+    n=$(git -C "$INSTALL_DIR" rev-list --count HEAD 2>/dev/null || echo '?')
     date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null || echo '?')
-    echo "ok    version $sha ($date)"
+    echo "ok    version v$n ($date)"
   else
     echo "warn  $INSTALL_DIR has no .git — version unknown"
   fi
