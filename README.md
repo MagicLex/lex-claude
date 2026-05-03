@@ -1,63 +1,63 @@
 # lex-claude
 
-Ma config globale pour Claude Code : identités (avec règles partagées canoniques), hook `SessionStart`, skills perso, et un CLI `lc` pour tout déployer/maintenir/synchroniser.
+My global Claude Code config: identities (with canonical shared rules), `SessionStart` hook, personal skills, and a `lc` CLI to deploy / maintain / sync everything.
 
-## Bootstrap (nouveau PC ou nouvel utilisateur)
+## Bootstrap (new machine or new user)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MagicLex/lex-claude/main/bin/lex-claude | bash -s install
 ```
 
-Ça clone le repo dans `~/.claude/lex-claude`, sync les règles dans toutes les identités, symlinke `~/.claude/CLAUDE.md` vers l'identité active, déploie les skills, câble le hook dans `settings.json`, et installe le CLI sur le `PATH` (`~/.local/bin/lex-claude` + alias `lc`).
+Clones the repo into `~/.claude/lex-claude`, syncs the rules into every identity, symlinks `~/.claude/CLAUDE.md` to the active identity, deploys the skills, wires the hook into `settings.json`, and installs the CLI on `PATH` (`~/.local/bin/lex-claude` + alias `lc`).
 
-> Pré-requis : `git`, `bash`, `jq` (pour patcher `settings.json` proprement).
+> Requirements: `git`, `bash`, `jq` (to patch `settings.json` cleanly).
 
 ## CLI
 
 ```
 lc install                                         # bootstrap (idempotent)
 lc update                                          # git pull + sync rules + redeploy
-lc identity                                        # liste, active marquée *
+lc identity                                        # list, active marked *
 lc identity <name>                                 # switch (global)
-lc identity new --name <n> --desc "<persona>"      # crée identité (persona + règles partagées)
-lc identity new --name <n> --empty                 # crée identité sans règles partagées
-lc rules sync                                      # ré-injecte RULES.md dans toutes les identités managées
+lc identity new --name <n> --desc "<persona>"      # create identity (persona + shared rules)
+lc identity new --name <n> --empty                 # create identity without shared rules
+lc rules sync                                      # re-inject RULES.md into every managed identity
 lc doctor                                          # check symlinks, hook, skills
-lc -help | -h | --help | help                      # toutes les variantes
+lc -help | -h | --help | help                      # all variants
 ```
 
-**Auto-update** : à chaque commande (sauf `install`/`update`/`rules`/`help`), check 1× / 24h sur `origin/main`. Si nouveau → pull + sync + redeploy + re-exec. Échec réseau → silencieux.
+**Auto-update**: on every command (except `install` / `update` / `rules` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
-## Architecture des identités
+## Identity architecture
 
-Chaque identité partage les **mêmes règles canoniques**, parce que Claude lit mal plusieurs fichiers — tout doit être dans un seul fichier self-contained.
+Every identity shares the **same canonical rules**, because Claude reads multiple files badly — everything must live in a single self-contained file.
 
-- `RULES.md` est la source canonique des règles partagées.
-- Chaque `identities/<name>.md` contient :
-  - une prelude perso (le "you are X, ..." qui distingue le personnage)
-  - un bloc géré entre `<!-- LC_RULES_BEGIN -->` et `<!-- LC_RULES_END -->`, ré-écrit à chaque `lc update` / `lc rules sync` à partir de `RULES.md`
-- `lc identity new` splice la prelude + les règles automatiquement
-- `lc identity new --empty` crée juste la prelude, pas de marqueurs, pas de sync — pour cas spéciaux
+- `RULES.md` is the canonical source for shared rules.
+- Each `identities/<name>.md` contains:
+  - a personal prelude (the "you are X, ..." that defines the character)
+  - a managed block between `<!-- LC_RULES_BEGIN -->` and `<!-- LC_RULES_END -->`, rewritten on every `lc update` / `lc rules sync` from `RULES.md`
+- `lc identity new` splices the prelude + the rules automatically
+- `lc identity new --empty` only creates the prelude, no markers, no sync — for special cases
 
-Quand tu modifies `RULES.md` et que tu push, toutes les identités sur toutes tes machines récupèrent la mise à jour au prochain `lc <anything>` (auto-update).
+When you edit `RULES.md` and push, every identity on every machine picks up the update on the next `lc <anything>` (auto-update).
 
-## Auto commit/push sur `identity new`
+## Auto commit/push on `identity new`
 
-À la création d'une identité, le CLI :
+When creating an identity, the CLI:
 - `git add identities/<name>.md`
 - `git commit -m "add identity: <name>"`
-- `git push` (sur le remote configuré — fork ou upstream selon le clone)
+- `git push` (to the configured remote — fork or upstream depending on the clone)
 
-Si push échoue (pas de droits, offline, etc.) → l'identité reste committée localement, message explicite, à toi de pousser plus tard.
+If push fails (no rights, offline, etc.) → the identity stays committed locally with an explicit message; push it later yourself.
 
-## Tree chargé par le hook
+## Tree loaded by the hook
 
-À chaque session, `hook.sh` injecte dans le contexte :
+On every session, `hook.sh` injects into context:
 
 ```
-~/.claude/CLAUDE.md          ← identité active (symlink → identities/<name>.md, rules incluses)
+~/.claude/CLAUDE.md          ← active identity (symlink → identities/<name>.md, rules inlined)
 $CLAUDE_PROJECT_DIR/
-├── CLAUDE.md                ← règles spécifiques au projet (optionnel)
+├── CLAUDE.md                ← project-specific rules (optional)
 └── docs/
     ├── PHILOSOPHY.md
     ├── PRINCIPLES.md
@@ -66,26 +66,26 @@ $CLAUDE_PROJECT_DIR/
     └── TODO.md
 ```
 
-Tous optionnels — seul ce qui existe est chargé.
+All optional — only what exists is loaded.
 
-## Skills inclus
+## Skills included
 
-Tous les skills perso sont préfixés `lc-` pour ne pas se noyer dans les skills natifs / autres plugins. Exception : `lc` lui-même, qui est aussi le nom de la commande slash `/lc`.
+All custom skills are prefixed `lc-` to avoid drowning in native skills / other plugins. Exception: `lc` itself, which is also the name of the `/lc` slash command.
 
-- `lc` — surface l'état lex-claude courant (identité active, skills installés, doctor). Invocable via `/lc`.
-- `lc-invariants` — audite un projet contre les invariants universels (erreurs standardisées, isolation tenant, secrets, migrations, containers, mocks, etc.). Utiliser pendant le dev ou avant merge.
-- `lc-review-project` — lit la doc projet et produit un résumé incisif (état, prochaines étapes).
-- `lc-exploration` — adopte la posture d'un senior du domaine que tu lui donnes pour explorer.
+- `lc` — surface the current lex-claude state (active identity, installed skills, doctor). Invoke via `/lc`.
+- `lc-invariants` — audit a project against universal invariants (standardized errors, tenant isolation, secrets, migrations, containers, mocks, etc.). Use during dev or before merge.
+- `lc-review-project` — read project docs and produce a sharp summary (state, next steps).
+- `lc-exploration` — adopt the mindset of a senior in a domain you give it, to explore.
 
-## Structure du repo
+## Repo structure
 
 ```
 lex-claude/
 ├── bin/lex-claude               ← CLI
 ├── hook.sh                      ← SessionStart hook
-├── RULES.md                     ← règles canoniques partagées
+├── RULES.md                     ← canonical shared rules
 ├── identities/
-│   └── jeanjean.md              ← persona + bloc rules synced
+│   └── jeanjean.md              ← persona + synced rules block
 ├── skills/
 │   ├── lc/SKILL.md
 │   ├── lc-invariants/SKILL.md
@@ -94,12 +94,12 @@ lex-claude/
 └── README.md
 ```
 
-## Ajouter une identité (manuelle ou CLI)
+## Adding an identity (manual or CLI)
 
-CLI : `lc identity new --name pierre --desc "senior security engineer, 20 ans en infosec, dry humour"` → fichier créé, règles inlinées, commit + push auto.
+CLI: `lc identity new --name pierre --desc "senior security engineer, 20 years in infosec, dry humour"` → file created, rules inlined, commit + push auto.
 
-Manuel : créer `identities/<name>.md` avec une prelude + les marqueurs `<!-- LC_RULES_BEGIN --> <!-- LC_RULES_END -->`, puis `lc rules sync` pour injecter le contenu.
+Manual: create `identities/<name>.md` with a prelude + the `<!-- LC_RULES_BEGIN --> <!-- LC_RULES_END -->` markers, then `lc rules sync` to inject the content.
 
-## Modifier les règles partagées
+## Editing the shared rules
 
-Éditer `RULES.md`, commit, push. Sur tes machines : `lc update` (ou attends l'auto-update sous 24h) — toutes les identités sont resynchronisées automatiquement.
+Edit `RULES.md`, commit, push. On your machines: `lc update` (or wait for auto-update within 24h) — every identity is resynced automatically.

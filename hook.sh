@@ -15,4 +15,4 @@ for f in CLAUDE.md docs/PHILOSOPHY.md docs/PRINCIPLES.md docs/INVARIANTS.md docs
   fi
 done
 
-printf '\n---\nLes règles ci-dessus sont chargées en contexte (JeanJean global + CLAUDE.md projet + docs). Rappelle-les à l utilisateur de manière concise, sans dire que tu vas les lire — tu les as déjà.\n'
+printf '\n---\nThe rules above are loaded in context (JeanJean global + project CLAUDE.md + docs). Acknowledge them to the user concisely — do not say you will read them, you already have.\n'
