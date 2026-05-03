@@ -1,6 +1,6 @@
 # lex-claude
 
-My global Claude Code config: identities (with canonical shared rules), `SessionStart` hook, personal skills, and a `lc` CLI to deploy / maintain / sync everything.
+LEXClaude Code config: identities (with canonical shared rules), `SessionStart` hook, personal skills, and a `lc` CLI to deploy / maintain / sync everything.
 
 ## Bootstrap (new machine or new user)
 
