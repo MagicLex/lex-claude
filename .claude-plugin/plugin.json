@@ -1,0 +1,10 @@
+{
+  "name": "lex-claude",
+  "description": "Personal Claude Code skills: invariant audits, project review, doc scaffolding, senior-level exploration. Skills are namespaced under /lex-claude:lc-*.",
+  "author": {
+    "name": "MagicLex",
+    "url": "https://github.com/MagicLex"
+  },
+  "homepage": "https://github.com/MagicLex/lex-claude",
+  "repository": "https://github.com/MagicLex/lex-claude"
+}

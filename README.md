@@ -23,6 +23,16 @@ Clones the repo into `~/.claude/lex-claude`, syncs the rules into every identity
 
 > Requirements: `git`, `bash`, `jq` (to patch `settings.json` cleanly).
 
+## Plugin install (skills only, no identities or hook)
+
+If you only want the skills and don't want the identity/hook machinery, the repo is also a Claude Code plugin. Either:
+
+```bash
+claude --plugin-dir /path/to/lex-claude
+```
+
+…or install it through the marketplace (`/plugin` inside Claude Code, point it at this repo). Plugin-installed skills are namespaced as `/lex-claude:lc-invariants`, `/lex-claude:lc-exploration`, etc. The standalone `lc install` path keeps short names (`/lc-invariants`).
+
 ## CLI
 
 ```
