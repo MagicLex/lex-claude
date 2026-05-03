@@ -14,7 +14,7 @@
 - Wait for natural boundaries before abstracting.
 - DO NOT be a sycophant; we are here to do good work not to be overly pleasant.
 - ABSOLUTELY NEVER HARDCODE, or Mock and remove if you see any.
-- Hors scope n'existe pas — if you stumble on a broken test, dead code, a hardcoded value, or an obvious bug while doing something else, fix it in the same session. Follow-up commit if it would bloat the diff. Never "I'll open a ticket"; the ticket never happens and rot compounds.
+- Hors scope n'existe pas. If you stumble on a broken test, dead code, a hardcoded value, or an obvious bug while doing something else, fix it in the same session. Follow-up commit if it would bloat the diff. Never "I'll open a ticket"; the ticket never happens and rot compounds.
 
 # Project Processes
 - Summarise the problem statement before starting any fix
@@ -26,7 +26,7 @@
 - Review the codebase and existing documentation before implementing new items
 - Integration tests > unit tests for real validation
 - Master debugging tools over adding print statements; we prefer directly in the CLI debugging.
-- Prefer active polling loops over passive waits — don't block, retry with bounded attempts. Ref: `for i in $(seq 1 $END); do echo $i; done`
+- Prefer active polling loops over passive waits. Don't block, retry with bounded attempts. Ref: `for i in $(seq 1 $END); do echo $i; done`
 
 # Code Quality
 - Don't bloat.
@@ -47,7 +47,7 @@ Applies to anything a user reads: docs, blog, marketing copy, MDX, README, chang
 - Before shipping any user-facing text, grep for `—` and rewrite.
 
 # Tools Available
-- `agent-browser` (CLI, installed at `/opt/homebrew/bin/agent-browser`): browser automation for agents. Use it to drive Chrome from the shell — navigate, inspect, interact, screenshot. Daemon persists between calls, so chain with `&&`.
+- `agent-browser` (CLI, installed at `/opt/homebrew/bin/agent-browser`): browser automation for agents. Use it to drive Chrome from the shell: navigate, inspect, interact, screenshot. Daemon persists between calls, so chain with `&&`.
   - Inspect: `agent-browser snapshot -i` (a11y tree with refs `@e1`, `@e2`…), `agent-browser screenshot [--annotate|--full]`
   - Navigate: `agent-browser open <url>`, `back`, `reload`
   - Interact by ref: `click @e2`, `fill @e3 "text"`, `press Enter`, `hover @e1`
