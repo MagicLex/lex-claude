@@ -18,9 +18,10 @@ Pass the current project under these checks. For each: search the code, report *
 11. **Billing & plan resolution** — documented chain (`plan_override → subscription → free`), instant suspension check, payment provider acts as Merchant of Record (we never handle card data).
 12. **Public tokens hashed** — share/public links looked up by SHA256 hash, never plaintext; secret shown once at creation.
 13. **Upstream failure → hide, not stale** — when a data source or background job fails past its threshold (heartbeat lost, crawler down, sync errored), the read path **hides** the affected entity. Never serve stale data labelled as fresh.
+14. **Stabilised patterns promoted** — no helper/component used 3+ times with a stable shape that still lives under `utils/`, `helpers/`, `common/`, `lib/misc/` while carrying domain logic. Repeated use + stable shape = it's a feature; give it a name, its own module/route/table, and an owner. Generic helpers carrying domain logic in disguise are tech debt.
 
 **Conditional — host-injected systems only** (agents, collectors, hooks, sidecars):
 
-14. **Kill switch & silent failure** — env-var disable without restart (`<NAME>_DISABLE=1`); on its own failure the injected component **silently skips**, never crashes the host process; heartbeat written to local disk for outside observability.
+15. **Kill switch & silent failure** — env-var disable without restart (`<NAME>_DISABLE=1`); on its own failure the injected component **silently skips**, never crashes the host process; heartbeat written to local disk for outside observability.
 
 End with a one-line verdict: green if all applicable pass, red with the failed numbers if any fail.

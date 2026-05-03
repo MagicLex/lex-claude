@@ -6,12 +6,12 @@ LEXClaude Code config: identities (with canonical shared rules), `SessionStart` 
 >
 > `lc install` is **destructive** to your existing Claude Code setup. If you run it as-is:
 >
-> - **`~/.claude/CLAUDE.md`** — if you have one, it gets backed up to `CLAUDE.md.bak.<ts>` and **replaced** by a symlink to my JeanJean identity. Your global instructions stop being loaded until you restore them.
-> - **`~/.claude/settings.json`** — backed up to `settings.json.bak.<ts>`, then any prior `JeanJean` / `lex-claude` `SessionStart` hook is stripped and replaced. Other hooks are preserved, but you're trusting `jq` + my filter logic.
+> - **`~/.claude/CLAUDE.md`** — if you have one, it gets backed up to `CLAUDE.md.bak.<ts>` and **replaced** by a symlink to the first identity found in `identities/` (alphabetical order). Your global instructions stop being loaded until you restore them.
+> - **`~/.claude/settings.json`** — backed up to `settings.json.bak.<ts>`, then any prior `lex-claude` `SessionStart` hook (and legacy `JeanJean` hooks from earlier versions) is stripped and replaced. Other hooks are preserved, but you're trusting `jq` + my filter logic.
 > - **`~/.claude/skills/lc*`** — any skill you happen to have named `lc`, `lc-invariants`, `lc-exploration`, `lc-review-project`, `lc-docs-init`, or `lc-docs-cleanup` will be silently overwritten by symlinks into the install dir.
 > - **`~/.local/bin/lex-claude` and `~/.local/bin/lc`** — created/replaced as symlinks. If you already have a binary called `lc`, it gets shadowed.
 >
-> This repo is published openly because the structure is reusable, **not** because you should run `lc install` blindly. If you want the same setup with your own persona and rules: fork it, replace `identities/jeanjean.md` and `RULES.md` with your own, then install from your fork (`LEX_CLAUDE_REPO=https://github.com/<you>/lex-claude.git lc install`).
+> This repo is published openly because the structure is reusable, **not** because you should run `lc install` blindly. If you want the same setup with your own persona and rules: fork it, replace the file(s) in `identities/` and edit `RULES.md` to match your conventions, then install from your fork (`LEX_CLAUDE_REPO=https://github.com/<you>/lex-claude.git lc install`).
 
 ## Bootstrap (new machine or new user)
 

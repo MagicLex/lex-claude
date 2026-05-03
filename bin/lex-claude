@@ -6,7 +6,6 @@ REPO_URL="${LEX_CLAUDE_REPO:-https://github.com/MagicLex/lex-claude.git}"
 INSTALL_DIR="$HOME/.claude/lex-claude"
 CLAUDE_DIR="$HOME/.claude"
 SETTINGS="$CLAUDE_DIR/settings.json"
-DEFAULT_IDENTITY="jeanjean"
 BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/lex-claude"
 BIN_ALIAS="$BIN_DIR/lc"
@@ -80,9 +79,16 @@ deploy() {
   if [[ "$cur" == "$INSTALL_DIR/identities/"*.md ]] && [ -e "$cur" ]; then
     echo "identity: $(basename "$cur" .md) (kept)"
   else
+    local default_identity=""
+    for f in "$INSTALL_DIR"/identities/*.md; do
+      [ -e "$f" ] || continue
+      default_identity=$(basename "$f" .md)
+      break
+    done
+    [ -n "$default_identity" ] || die "no identities found in $INSTALL_DIR/identities/"
     [ -e "$target" ] && [ ! -L "$target" ] && cp "$target" "$target.bak.$(date +%s)" && echo "backup: $target.bak.*"
-    ln -sfn "$INSTALL_DIR/identities/$DEFAULT_IDENTITY.md" "$target"
-    echo "identity: $DEFAULT_IDENTITY (linked)"
+    ln -sfn "$INSTALL_DIR/identities/$default_identity.md" "$target"
+    echo "identity: $default_identity (linked)"
   fi
 
   for link in "$CLAUDE_DIR/skills/"*; do
