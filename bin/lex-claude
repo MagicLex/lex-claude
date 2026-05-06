@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lex-claude — manage global Claude Code config (identity, hook, skills).
+# lex-claude. manage global Claude Code config (identity, hook, skills).
 set -euo pipefail
 
 REPO_URL="${LEX_CLAUDE_REPO:-https://github.com/MagicLex/lex-claude.git}"
@@ -27,8 +27,8 @@ auto_update() {
   local_sha=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || return 0
   remote_sha=$(git -C "$INSTALL_DIR" rev-parse '@{u}' 2>/dev/null) || return 0
   [ "$local_sha" = "$remote_sha" ] && return 0
-  echo "lex-claude: newer version on origin — updating..."
-  git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict) — run 'lc update' manually" >&2; return 0; }
+  echo "lex-claude: newer version on origin. updating..."
+  git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict). run 'lc update' manually" >&2; return 0; }
   deploy >/dev/null
   echo "lex-claude: updated, re-running."
   exec "$INSTALL_DIR/bin/lex-claude" "$@"
@@ -36,7 +36,7 @@ auto_update() {
 
 usage() {
   cat <<EOF
-lex-claude — global Claude Code config manager
+lex-claude. global Claude Code config manager
 
 Usage:
   lex-claude install [--yes]    Bootstrap: clone, symlink CLAUDE.md, wire hook, deploy skills. Prompts before overwriting existing files; --yes / LEX_CLAUDE_YES=1 skips the prompt.
@@ -46,6 +46,7 @@ Usage:
   lex-claude identity new --name <n> --desc "<d>"    Create identity (persona + shared rules).
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities.
+  lex-claude github-login [--token TOKEN]            Wire gh + git auth from a GitHub token (env: GITHUB_TOKEN). Prompts if no token and interactive.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 EOF
@@ -62,9 +63,10 @@ cmd_version() {
 wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
   if ! command -v jq >/dev/null 2>&1; then
-    echo "warn: jq missing — add hook manually to $SETTINGS (command: $cmd)"
+    echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return
   fi
+  mkdir -p "$(dirname "$SETTINGS")"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
   cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
   jq --arg cmd "$cmd" '
@@ -122,10 +124,7 @@ deploy() {
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_LINK"
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
   echo "cli: $BIN_LINK (alias: lc)"
-  case ":$PATH:" in
-    *":$BIN_DIR:"*) ;;
-    *) echo "warn: $BIN_DIR not in PATH — add: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
-  esac
+  ensure_path_in_rc || true
 }
 
 cmd_install() {
@@ -153,7 +152,7 @@ cmd_install() {
   fi
 
   if [ -d "$INSTALL_DIR/.git" ]; then
-    echo "already installed at $INSTALL_DIR — pulling latest"
+    echo "already installed at $INSTALL_DIR. pulling latest"
     git -C "$INSTALL_DIR" pull --ff-only
   else
     mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -164,7 +163,7 @@ cmd_install() {
 }
 
 cmd_update() {
-  [ -d "$INSTALL_DIR/.git" ] || die "not installed — run: lex-claude install"
+  [ -d "$INSTALL_DIR/.git" ] || die "not installed. run: lex-claude install"
   git -C "$INSTALL_DIR" pull --ff-only
   deploy
   echo "updated."
@@ -229,7 +228,7 @@ identity_new() {
       if git -C "$INSTALL_DIR" push -q 2>/dev/null; then
         echo "git:    committed + pushed to origin"
       else
-        echo "git:    committed locally (push failed — no remote perms? run 'git -C $INSTALL_DIR push' manually)"
+        echo "git:    committed locally (push failed. no remote perms? run 'git -C $INSTALL_DIR push' manually, or: lc github-login --token <TOKEN>)"
       fi
     fi
   fi
@@ -274,15 +273,71 @@ ensure_path_in_rc() {
   case "$(basename "${SHELL:-}")" in
     zsh)  rc="$HOME/.zshrc" ;;
     bash) rc="$HOME/.bashrc" ;;
-    *) echo "warn  unknown shell ($SHELL) — add manually: export PATH=\"\$HOME/.local/bin:\$PATH\""; return 1 ;;
+    *) echo "warn  unknown shell ($SHELL). add manually: export PATH=\"\$HOME/.local/bin:\$PATH\""; return 1 ;;
   esac
   local line='export PATH="$HOME/.local/bin:$PATH"'
   if [ -f "$rc" ] && grep -Fq "$line" "$rc"; then
-    echo "ok    PATH export already in $rc — re-source it: source $rc"
+    echo "ok    PATH export already in $rc. re-source it: source $rc"
     return 0
   fi
   printf '\n# added by lex-claude\n%s\n' "$line" >> "$rc"
-  echo "fix   appended PATH export to $rc — re-source it: source $rc"
+  echo "fix   appended PATH export to $rc. re-source it: source $rc"
+}
+
+cmd_github_login() {
+  local token=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --token|-t) token="${2:-}"; shift 2 ;;
+      *) die "unknown flag: $1 (expected --token)" ;;
+    esac
+  done
+
+  if [ -z "$token" ]; then
+    token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  fi
+  if [ -z "$token" ]; then
+    if [ -t 0 ]; then
+      printf "github personal access token (input hidden): "
+      stty -echo 2>/dev/null || true
+      read -r token
+      stty echo 2>/dev/null || true
+      printf '\n'
+    else
+      die "no token. pass --token, set GITHUB_TOKEN, or run interactively."
+    fi
+  fi
+  [ -n "$token" ] || die "empty token."
+
+  if command -v gh >/dev/null 2>&1; then
+    printf '%s' "$token" | gh auth login --with-token --hostname github.com
+    gh auth setup-git
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: authenticated as $user"
+    echo "git: gh credential helper wired for github.com"
+  else
+    git config --global credential.helper store
+    local user
+    user=$(curl -fsSL -H "Authorization: token $token" https://api.github.com/user 2>/dev/null \
+           | sed -n 's/.*"login": *"\([^"]*\)".*/\1/p' | head -n1)
+    [ -n "$user" ] || die "token rejected by github api. check scope/expiry."
+    {
+      printf 'https://%s:%s@github.com\n' "$user" "$token"
+    } > "$HOME/.git-credentials"
+    chmod 600 "$HOME/.git-credentials"
+    echo "git: stored credentials in ~/.git-credentials as $user"
+    echo "note: install gh for richer auth (PRs, issues). brew install gh / apt install gh."
+  fi
+
+  local who="${user:-MagicLex}"
+  if command -v git >/dev/null 2>&1; then
+    [ -z "$(git config --global user.email 2>/dev/null)" ] && \
+      git config --global user.email "$who@users.noreply.github.com" && \
+      echo "git: set user.email to $who@users.noreply.github.com (override with: git config --global user.email ...)"
+    [ -z "$(git config --global user.name 2>/dev/null)" ] && \
+      git config --global user.name "$who" && \
+      echo "git: set user.name to $who"
+  fi
 }
 
 cmd_doctor() {
@@ -293,7 +348,7 @@ cmd_doctor() {
     date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null || echo '?')
     echo "ok    version v$n ($date)"
   else
-    echo "warn  $INSTALL_DIR has no .git — version unknown"
+    echo "warn  $INSTALL_DIR has no .git. version unknown"
   fi
   if [ -L "$CLAUDE_DIR/CLAUDE.md" ] && [ -e "$CLAUDE_DIR/CLAUDE.md" ]; then
     echo "ok    CLAUDE.md → $(readlink "$CLAUDE_DIR/CLAUDE.md")"
@@ -309,20 +364,21 @@ cmd_doctor() {
   [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
   [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
   ensure_path_in_rc || ok=0
-  [ $ok -eq 1 ] && echo "all good." || { echo "issues — run: lex-claude install"; exit 1; }
+  [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
 }
 
 case "${1:-}" in
-  install|update|rules|version|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|version|github-login|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
 case "${1:-}" in
-  install)  shift; cmd_install "$@" ;;
-  update)   shift; cmd_update "$@" ;;
-  identity) shift; cmd_identity "$@" ;;
-  rules)    shift; cmd_rules "$@" ;;
-  doctor)   shift; cmd_doctor "$@" ;;
+  install)      shift; cmd_install "$@" ;;
+  update)       shift; cmd_update "$@" ;;
+  identity)     shift; cmd_identity "$@" ;;
+  rules)        shift; cmd_rules "$@" ;;
+  github-login) shift; cmd_github_login "$@" ;;
+  doctor)       shift; cmd_doctor "$@" ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
   *) usage; exit 1 ;;
