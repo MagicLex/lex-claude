@@ -64,12 +64,25 @@ wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
-    return
+    return 0
   fi
-  mkdir -p "$(dirname "$SETTINGS")"
-  [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-  cp "$SETTINGS" "$SETTINGS.bak.$(date +%s)"
-  jq --arg cmd "$cmd" '
+  mkdir -p "$(dirname "$SETTINGS")" 2>/dev/null || true
+
+  if [ ! -f "$SETTINGS" ]; then
+    local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-settings.$$"
+    if ! { echo '{}' > "$tmp" && mv "$tmp" "$SETTINGS"; } 2>/dev/null; then
+      echo "warn: cannot write $SETTINGS (open-create blocked by fs?). hook NOT wired."
+      echo "diag: $(ls -la "$(dirname "$SETTINGS")" 2>&1 | head -3 | tr '\n' '|')"
+      rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
+  fi
+
+  local bak="$SETTINGS.bak.$(date +%s)"
+  cp "$SETTINGS" "$bak" 2>/dev/null || true
+
+  local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
+  if jq --arg cmd "$cmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -77,8 +90,13 @@ wire_hook() {
       | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook")) | not))
     ] |
     .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
-  ' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
-  echo "hook: wired"
+  ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
+    echo "hook: wired"
+  else
+    echo "warn: jq patch failed. hook NOT wired. backup at $bak"
+    rm -f "$out" 2>/dev/null || true
+    return 1
+  fi
 }
 
 deploy() {
@@ -119,12 +137,13 @@ deploy() {
     echo "skill: $name"
   done
 
-  wire_hook
-
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_LINK"
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
   echo "cli: $BIN_LINK (alias: lc)"
+
   ensure_path_in_rc || true
+
+  wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
 }
 
 cmd_install() {
