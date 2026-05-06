@@ -177,6 +177,14 @@ cmd_install() {
     mkdir -p "$(dirname "$INSTALL_DIR")"
     git clone "$REPO_URL" "$INSTALL_DIR"
   fi
+
+  if [ "${LEX_CLAUDE_INSTALL_REEXEC:-}" != "1" ] && [ -x "$INSTALL_DIR/bin/lex-claude" ]; then
+    if ! cmp -s "$0" "$INSTALL_DIR/bin/lex-claude" 2>/dev/null; then
+      echo "install: re-exec on-disk script (curl CDN may serve stale)"
+      LEX_CLAUDE_INSTALL_REEXEC=1 LEX_CLAUDE_YES="${LEX_CLAUDE_YES:-1}" exec "$INSTALL_DIR/bin/lex-claude" install
+    fi
+  fi
+
   deploy
   echo "done. open a new Claude Code session to load."
 }
