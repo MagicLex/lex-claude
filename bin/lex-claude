@@ -12,6 +12,15 @@ BIN_ALIAS="$BIN_DIR/lc"
 
 die() { echo "error: $*" >&2; exit 1; }
 
+reset_managed_tree() {
+  # Install dir is a deployed artifact, not a workspace. sync_rules and deploy
+  # rewrite tracked files; any drift would block git pull. Discard local mods
+  # to tracked files before pulling. Untracked files (.last-update-check, etc)
+  # are left alone.
+  [ -d "$INSTALL_DIR/.git" ] || return 0
+  git -C "$INSTALL_DIR" checkout -- . 2>/dev/null || true
+}
+
 auto_update() {
   [ "${LEX_CLAUDE_NO_AUTO_UPDATE:-}" = "1" ] && return 0
   [ -d "$INSTALL_DIR/.git" ] || return 0
@@ -28,6 +37,7 @@ auto_update() {
   remote_sha=$(git -C "$INSTALL_DIR" rev-parse '@{u}' 2>/dev/null) || return 0
   [ "$local_sha" = "$remote_sha" ] && return 0
   echo "lex-claude: newer version on origin. updating..."
+  reset_managed_tree
   git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict). run 'lc update' manually" >&2; return 0; }
   deploy >/dev/null
   echo "lex-claude: updated, re-running."
@@ -172,6 +182,7 @@ cmd_install() {
 
   if [ -d "$INSTALL_DIR/.git" ]; then
     echo "already installed at $INSTALL_DIR. pulling latest"
+    reset_managed_tree
     git -C "$INSTALL_DIR" pull --ff-only
   else
     mkdir -p "$(dirname "$INSTALL_DIR")"
@@ -191,6 +202,7 @@ cmd_install() {
 
 cmd_update() {
   [ -d "$INSTALL_DIR/.git" ] || die "not installed. run: lex-claude install"
+  reset_managed_tree
   git -C "$INSTALL_DIR" pull --ff-only
   deploy
   echo "updated."
