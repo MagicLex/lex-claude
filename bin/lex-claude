@@ -70,6 +70,33 @@ cmd_version() {
   echo "lex-claude v$n ($date)"
 }
 
+wire_statusline() {
+  local cmd="bash $CLAUDE_DIR/statusline-command.sh"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "warn: jq missing. add statusLine manually to $SETTINGS (command: $cmd)"
+    return 0
+  fi
+  [ -f "$SETTINGS" ] || { echo '{}' > "$SETTINGS"; }
+
+  local current
+  current=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null || echo "")
+  case "$current" in
+    *statusline-command.sh*) echo "statusline: wired (kept)"; return 0 ;;
+    "") ;;
+    *) echo "statusline: custom command in $SETTINGS (kept). to use lex-claude's, set: $cmd"; return 0 ;;
+  esac
+
+  local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-sl.$$"
+  if jq --arg cmd "$cmd" '.statusLine = {"type":"command","command":$cmd}' "$SETTINGS" > "$out" \
+     && mv "$out" "$SETTINGS"; then
+    echo "statusline: wired"
+  else
+    echo "warn: jq patch failed. statusLine NOT wired."
+    rm -f "$out" 2>/dev/null || true
+    return 1
+  fi
+}
+
 wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
   if ! command -v jq >/dev/null 2>&1; then
@@ -151,9 +178,21 @@ deploy() {
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
   echo "cli: $BIN_LINK (alias: lc)"
 
+  local sl_target="$CLAUDE_DIR/statusline-command.sh"
+  local sl_src="$INSTALL_DIR/statusline-command.sh"
+  if [ -f "$sl_src" ]; then
+    if [ -e "$sl_target" ] && [ ! -L "$sl_target" ]; then
+      cp "$sl_target" "$sl_target.bak.$(date +%s)"
+      echo "backup: $sl_target.bak.*"
+    fi
+    ln -sfn "$sl_src" "$sl_target"
+    echo "statusline: $sl_target"
+  fi
+
   ensure_path_in_rc || true
 
   wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
+  wire_statusline || echo "note: statusline wiring skipped. run 'lc doctor' to investigate."
 }
 
 cmd_install() {
@@ -170,7 +209,8 @@ cmd_install() {
   if [ $needs_prompt -eq 1 ] && [ $yes -eq 0 ]; then
     echo "lc install will modify these existing files (backups will be created):"
     [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ] && echo "  - $CLAUDE_DIR/CLAUDE.md → backup + replace with symlink to managed identity"
-    [ -f "$SETTINGS" ] && echo "  - $SETTINGS → backup + jq-patch SessionStart hook"
+    [ -e "$CLAUDE_DIR/statusline-command.sh" ] && [ ! -L "$CLAUDE_DIR/statusline-command.sh" ] && echo "  - $CLAUDE_DIR/statusline-command.sh → backup + replace with symlink to managed script"
+    [ -f "$SETTINGS" ] && echo "  - $SETTINGS → backup + jq-patch SessionStart hook + statusLine"
     if [ -t 0 ]; then
       printf "continue? [y/N] "
       local r; read -r r
@@ -400,6 +440,12 @@ cmd_doctor() {
     [ -L "$CLAUDE_DIR/skills/$name" ] && echo "ok    skill $name" || { echo "fail  skill $name"; ok=0; }
   done
   grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
+  if [ -L "$CLAUDE_DIR/statusline-command.sh" ] && [ -e "$CLAUDE_DIR/statusline-command.sh" ]; then
+    echo "ok    statusline → $(readlink "$CLAUDE_DIR/statusline-command.sh")"
+  else
+    echo "warn  statusline not symlinked"
+  fi
+  grep -q "statusline-command.sh" "$SETTINGS" 2>/dev/null && echo "ok    statusline wired" || echo "warn  statusline not wired in $SETTINGS"
   [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
   [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
   ensure_path_in_rc || ok=0
