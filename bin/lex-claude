@@ -57,6 +57,9 @@ Usage:
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities.
   lex-claude github-login [--token TOKEN]            Wire gh + git auth from a GitHub token (env: GITHUB_TOKEN). Prompts if no token and interactive.
+  lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
+  lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
+  lex-claude awake off|status                        Stop or inspect the assertion.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 EOF
@@ -419,6 +422,147 @@ cmd_github_login() {
   fi
 }
 
+cmd_awake() {
+  local pid_file="$HOME/.cache/lex-claude/awake.pid"
+  mkdir -p "$(dirname "$pid_file")" 2>/dev/null || true
+
+  case "${1:-}" in
+    off|stop)
+      if [ -f "$pid_file" ]; then
+        local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" 2>/dev/null
+          rm -f "$pid_file"
+          echo "awake: stopped (pid $pid)"
+        else
+          rm -f "$pid_file"
+          echo "awake: not active (stale pidfile cleared)"
+        fi
+      else
+        echo "awake: not active"
+      fi
+      return
+      ;;
+    status)
+      if [ -f "$pid_file" ]; then
+        local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          local cmdline; cmdline=$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^ *//')
+          local started; started=$(ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^ *//')
+          echo "awake: active (pid $pid)"
+          echo "       started: $started"
+          echo "       command: $cmdline"
+          return
+        fi
+        rm -f "$pid_file"
+      fi
+      echo "awake: not active"
+      return
+      ;;
+    -h|--help|help)
+      cat <<'EOF'
+lc awake. keep this Mac from sleeping while idle.
+
+Usage:
+  lc awake [duration]        run until duration elapses (default: until 'lc awake off')
+  lc awake --while <pid>     stay awake while <pid> is alive
+  lc awake off               stop the active assertion
+  lc awake status            show whether an assertion is held
+
+Duration:
+  Examples: 30m, 2h, 1h30m, 45s, or raw seconds. Empty = no timeout.
+
+Mechanism:
+  Wraps `caffeinate -dimsu`. Blocks display sleep, idle sleep, disk sleep, and
+  declares the user active.
+
+Limit:
+  Closing the lid on Apple Silicon will still sleep the Mac. The lid switch is
+  routed through the SMC; no IOPMAssertion overrides it. To work lid-closed you
+  need clamshell mode: power adapter + external display (or an EDID dummy plug).
+EOF
+      return
+      ;;
+  esac
+
+  command -v caffeinate >/dev/null 2>&1 || die "caffeinate not found (macOS-only command)"
+
+  local target_pid="" duration_str=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --while|-w)
+        target_pid="${2:-}"
+        [ -n "$target_pid" ] || die "--while requires a pid"
+        kill -0 "$target_pid" 2>/dev/null || die "no such pid: $target_pid"
+        shift 2
+        ;;
+      *)
+        [ -z "$duration_str" ] || die "unexpected arg: $1"
+        duration_str="$1"
+        shift
+        ;;
+    esac
+  done
+
+  local seconds=0
+  if [ -n "$duration_str" ]; then
+    if [[ "$duration_str" =~ ^[0-9]+$ ]]; then
+      seconds=$duration_str
+    else
+      local rest="$duration_str"
+      while [ -n "$rest" ]; do
+        if [[ "$rest" =~ ^([0-9]+)([smhd])(.*)$ ]]; then
+          local n=${BASH_REMATCH[1]} u=${BASH_REMATCH[2]}
+          rest=${BASH_REMATCH[3]}
+          case "$u" in
+            s) seconds=$((seconds + n)) ;;
+            m) seconds=$((seconds + n * 60)) ;;
+            h) seconds=$((seconds + n * 3600)) ;;
+            d) seconds=$((seconds + n * 86400)) ;;
+          esac
+        else
+          die "invalid duration: $duration_str (expected: 30m, 2h, 1h30m, 45s, or raw seconds)"
+        fi
+      done
+    fi
+  fi
+
+  if [ -f "$pid_file" ]; then
+    local old; old=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
+      kill "$old" 2>/dev/null
+      echo "awake: replaced previous assertion (pid $old)"
+    fi
+    rm -f "$pid_file"
+  fi
+
+  local args=(-dimsu)
+  if [ -n "$target_pid" ]; then
+    args+=(-w "$target_pid")
+  elif [ "$seconds" -gt 0 ]; then
+    args+=(-t "$seconds")
+  fi
+
+  nohup caffeinate "${args[@]}" >/dev/null 2>&1 &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" > "$pid_file"
+
+  if [ -n "$target_pid" ]; then
+    echo "awake: pid $pid, while pid $target_pid is alive"
+  elif [ "$seconds" -gt 0 ]; then
+    local h=$((seconds / 3600)) m=$(((seconds % 3600) / 60)) s=$((seconds % 60))
+    local human=""
+    [ "$h" -gt 0 ] && human="${human}${h}h"
+    [ "$m" -gt 0 ] && human="${human}${m}m"
+    [ "$s" -gt 0 ] && human="${human}${s}s"
+    [ -z "$human" ] && human="${seconds}s"
+    echo "awake: pid $pid, for $human"
+  else
+    echo "awake: pid $pid, no timeout. stop with: lc awake off"
+  fi
+}
+
 cmd_doctor() {
   local ok=1
   if [ -d "$INSTALL_DIR/.git" ]; then
@@ -453,7 +597,7 @@ cmd_doctor() {
 }
 
 case "${1:-}" in
-  install|update|rules|version|github-login|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|version|github-login|awake|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -463,6 +607,7 @@ case "${1:-}" in
   identity)     shift; cmd_identity "$@" ;;
   rules)        shift; cmd_rules "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;
+  awake)        shift; cmd_awake "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
