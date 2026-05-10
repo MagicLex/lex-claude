@@ -60,6 +60,8 @@ Usage:
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
   lex-claude awake off|status                        Stop or inspect the assertion.
+  lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
+  lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 EOF
@@ -563,6 +565,120 @@ EOF
   fi
 }
 
+cmd_init() {
+  case "${1:-help}" in
+    zsh)
+      cat <<'EOF'
+# lex-claude zsh completion. Add to ~/.zshrc: eval "$(lc init zsh)"
+_lc() {
+  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds
+  cmds=(
+    'install:bootstrap clone + symlinks + hooks'
+    'update:pull latest and redeploy'
+    'identity:manage active identity'
+    'rules:sync RULES.md across identities'
+    'github-login:wire gh + git auth'
+    'awake:keep Mac awake (caffeinate wrapper)'
+    'init:shell completion + context dump'
+    'doctor:sanity-check the install'
+    'version:print install version'
+  )
+  awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid')
+  init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
+  identity_cmds=('new:create a new identity')
+  rules_cmds=('sync:re-inject RULES.md')
+  local state
+  _arguments -C '1: :->cmd' '*::arg:->args'
+  case $state in
+    cmd) _describe 'subcommand' cmds ;;
+    args)
+      case $words[1] in
+        awake)    _describe 'awake' awake_cmds ;;
+        init)     _describe 'init target' init_cmds ;;
+        identity) _describe 'identity action' identity_cmds ;;
+        rules)    _describe 'rules action' rules_cmds ;;
+      esac
+      ;;
+  esac
+}
+compdef _lc lc
+compdef _lc lex-claude
+EOF
+      ;;
+    bash)
+      cat <<'EOF'
+# lex-claude bash completion. Add to ~/.bashrc: eval "$(lc init bash)"
+_lc() {
+  local cur prev cmds
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmds="install update identity rules github-login awake init doctor version"
+  case "$prev" in
+    lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
+    awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
+    init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
+    identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
+    rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
+  esac
+}
+complete -F _lc lc
+complete -F _lc lex-claude
+EOF
+      ;;
+    claude)
+      cat <<'EOF'
+The user has `lc` (alias of `lex-claude`) installed locally. It manages the
+global Claude Code config: identity, rules, hooks, skills, statusline.
+
+Available subcommands (run with `lc <cmd>`):
+
+- `identity`                                  list identities (active marked *)
+- `identity <name>`                           switch active identity
+- `identity new --name <n> --desc "<d>"`      create identity (with shared rules)
+- `identity new --name <n> --empty`           create identity (no shared rules)
+- `rules sync`                                re-inject RULES.md into all identities
+- `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
+- `awake --while <pid>`                       stay awake while pid is alive
+- `awake off`                                 stop the active assertion
+- `awake status`                              inspect (shows pid, started, command)
+- `init zsh|bash`                             output shell completion
+- `init claude`                               print this command reference
+- `github-login [--token TOKEN]`              wire gh + git auth
+- `doctor`                                    sanity-check the install
+- `update`                                    pull latest + redeploy
+- `version`                                   print install version
+
+Notes:
+- `lc awake` cannot bypass lid-close sleep on Apple Silicon. The lid switch is
+  routed through the SMC in firmware; no IOPMAssertion overrides it. Clamshell
+  mode (power + external display, or an EDID dummy plug) is the only path.
+- The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
+- The statusline at ~/.claude/statusline-command.sh is also managed (renders
+  identity, git status, files lu/in-ctx/known, and a token meter that turns
+  red past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 50000).
+- This reference is auto-loaded at session start by the SessionStart hook.
+EOF
+      ;;
+    help|-h|--help|"")
+      cat <<EOF
+lc init. shell completion and Claude Code context dump.
+
+Usage:
+  lc init zsh       output zsh completion. Add to ~/.zshrc:
+                      eval "\$(lc init zsh)"
+  lc init bash      output bash completion. Add to ~/.bashrc:
+                      eval "\$(lc init bash)"
+  lc init claude    print the lex-claude command reference. The SessionStart
+                    hook auto-injects this so Claude Code knows about \`lc\`
+                    in every session. Run manually for inspection or piping.
+EOF
+      ;;
+    *)
+      die "unknown init target: $1 (expected: zsh, bash, claude)"
+      ;;
+  esac
+}
+
 cmd_doctor() {
   local ok=1
   if [ -d "$INSTALL_DIR/.git" ]; then
@@ -597,7 +713,7 @@ cmd_doctor() {
 }
 
 case "${1:-}" in
-  install|update|rules|version|github-login|awake|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|version|github-login|awake|init|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -608,6 +724,7 @@ case "${1:-}" in
   rules)        shift; cmd_rules "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;
   awake)        shift; cmd_awake "$@" ;;
+  init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
