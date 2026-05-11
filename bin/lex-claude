@@ -654,8 +654,8 @@ Notes:
   mode (power + external display, or an EDID dummy plug) is the only path.
 - The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
 - The statusline at ~/.claude/statusline-command.sh is also managed (renders
-  identity, git status, files lu/in-ctx/known, and a token meter that turns
-  red past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 50000).
+  identity, git status, files read (with ctx:N if compaction reduced it), and
+  a token meter that turns red past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF
       ;;
