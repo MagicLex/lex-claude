@@ -14,11 +14,11 @@ die() { echo "error: $*" >&2; exit 1; }
 
 reset_managed_tree() {
   # Install dir is a deployed artifact, not a workspace. sync_rules and deploy
-  # rewrite tracked files; any drift would block git pull. Discard local mods
-  # to tracked files before pulling. Untracked files (.last-update-check, etc)
+  # rewrite tracked files; any drift would block git pull. Hard-reset wipes
+  # both staged and worktree drift. Untracked files (.last-update-check, etc)
   # are left alone.
   [ -d "$INSTALL_DIR/.git" ] || return 0
-  git -C "$INSTALL_DIR" checkout -- . 2>/dev/null || true
+  git -C "$INSTALL_DIR" reset --hard HEAD --quiet || true
 }
 
 auto_update() {
