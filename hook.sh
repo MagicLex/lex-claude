@@ -25,6 +25,15 @@ if [ -x "$LEX_CLAUDE_CLI" ]; then
   "$LEX_CLAUDE_CLI" init claude
 fi
 
+LEX_CLAUDE_LANG_FILE="$HOME/.claude/lex-claude/.lang"
+if [ -f "$LEX_CLAUDE_LANG_FILE" ]; then
+  lang=$(cat "$LEX_CLAUDE_LANG_FILE" 2>/dev/null | tr -d '[:space:]')
+  case "$lang" in
+    en) printf '\n===== language =====\nRespond in English.\n' ;;
+    fr) printf '\n===== language =====\nRespond in French.\n' ;;
+  esac
+fi
+
 printf '\n---\nThe rules above are loaded in context (global CLAUDE.md + project CLAUDE.md + docs + lex-claude commands). Acknowledge them to the user concisely. Repeat back two or three of the most relevant rules or principles so the user can see they landed, and list the documentation files that were just loaded above so the user knows what is in context. Do not say you will read them, you already have.\n'
 
 date +%s > "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true

@@ -9,6 +9,7 @@ SETTINGS="$CLAUDE_DIR/settings.json"
 BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/lex-claude"
 BIN_ALIAS="$BIN_DIR/lc"
+LANG_FILE="$INSTALL_DIR/.lang"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -56,6 +57,9 @@ Usage:
   lex-claude identity new --name <n> --desc "<d>"    Create identity (persona + shared rules).
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities.
+  lex-claude lang                                    Print active language (en/fr/off).
+  lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
+  lex-claude lang off                                Clear (Claude picks the language).
   lex-claude github-login [--token TOKEN]            Wire gh + git auth from a GitHub token (env: GITHUB_TOKEN). Prompts if no token and interactive.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
@@ -326,6 +330,30 @@ cmd_rules() {
   esac
 }
 
+cmd_lang() {
+  case "${1:-}" in
+    "")
+      if [ -f "$LANG_FILE" ]; then
+        local cur; cur=$(cat "$LANG_FILE" 2>/dev/null || echo "")
+        [ -n "$cur" ] && echo "lang: $cur" || echo "lang: off"
+      else
+        echo "lang: off"
+      fi
+      echo "switch: lc lang en|fr|off"
+      ;;
+    en|fr)
+      mkdir -p "$(dirname "$LANG_FILE")" 2>/dev/null || true
+      echo "$1" > "$LANG_FILE"
+      echo "lang: $1 (active next session)"
+      ;;
+    off|none|clear)
+      rm -f "$LANG_FILE"
+      echo "lang: off"
+      ;;
+    *) die "unknown lang: $1 (expected: en, fr, off)" ;;
+  esac
+}
+
 cmd_identity() {
   local target="$CLAUDE_DIR/CLAUDE.md"
   case "${1:-}" in
@@ -577,6 +605,7 @@ _lc() {
     'update:pull latest and redeploy'
     'identity:manage active identity'
     'rules:sync RULES.md across identities'
+    'lang:set Claude reply language (en|fr|off)'
     'github-login:wire gh + git auth'
     'awake:keep Mac awake (caffeinate wrapper)'
     'init:shell completion + context dump'
@@ -587,6 +616,7 @@ _lc() {
   init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
   identity_cmds=('new:create a new identity')
   rules_cmds=('sync:re-inject RULES.md')
+  lang_cmds=('en:English' 'fr:French' 'off:clear (Claude picks)')
   local state
   _arguments -C '1: :->cmd' '*::arg:->args'
   case $state in
@@ -597,6 +627,7 @@ _lc() {
         init)     _describe 'init target' init_cmds ;;
         identity) _describe 'identity action' identity_cmds ;;
         rules)    _describe 'rules action' rules_cmds ;;
+        lang)     _describe 'lang' lang_cmds ;;
       esac
       ;;
   esac
@@ -612,13 +643,14 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules github-login awake init doctor version"
+  cmds="install update identity rules lang github-login awake init doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
     init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
     rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
+    lang)          COMPREPLY=( $(compgen -W "en fr off" -- "$cur") ) ;;
   esac
 }
 complete -F _lc lc
@@ -637,6 +669,7 @@ Available subcommands (run with `lc <cmd>`):
 - `identity new --name <n> --desc "<d>"`      create identity (with shared rules)
 - `identity new --name <n> --empty`           create identity (no shared rules)
 - `rules sync`                                re-inject RULES.md into all identities
+- `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
@@ -654,8 +687,8 @@ Notes:
   mode (power + external display, or an EDID dummy plug) is the only path.
 - The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
 - The statusline at ~/.claude/statusline-command.sh is also managed (renders
-  identity, git status, files read (with ctx:N if compaction reduced it), and
-  a token meter that turns red past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
+  dir, git status, identity, lang (if set), and a token meter that turns red
+  past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF
       ;;
@@ -713,7 +746,7 @@ cmd_doctor() {
 }
 
 case "${1:-}" in
-  install|update|rules|version|github-login|awake|init|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|lang|version|github-login|awake|init|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -722,6 +755,7 @@ case "${1:-}" in
   update)       shift; cmd_update "$@" ;;
   identity)     shift; cmd_identity "$@" ;;
   rules)        shift; cmd_rules "$@" ;;
+  lang)         shift; cmd_lang "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;
   awake)        shift; cmd_awake "$@" ;;
   init)         shift; cmd_init "$@" ;;

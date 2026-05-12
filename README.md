@@ -44,11 +44,12 @@ lc identity <name>                                 # switch (global)
 lc identity new --name <n> --desc "<persona>"      # create identity (persona + shared rules)
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
+lc lang [en|fr|off]                                # set / clear Claude reply language (hook injects, statusline shows)
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
 
-**Auto-update**: on every command (except `install` / `update` / `rules` / `version` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
+**Auto-update**: on every command (except `install` / `update` / `rules` / `lang` / `version` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
 ## Kill switches (env vars)
 

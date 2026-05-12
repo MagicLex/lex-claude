@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Managed by lex-claude. Source: $INSTALL_DIR/statusline-command.sh
-# Renders: ➜ dir git:(branch) ✗ identity f:lu/ctx/kn tok:Nk
+# Renders: ➜ dir git:(branch) ✗ identity lang:xx tok:Nk
 
 set -u
 input=$(cat)
@@ -9,7 +9,6 @@ j() { jq -r "$1" 2>/dev/null <<<"$input"; }
 cwd=$(j '.workspace.current_dir')
 [ -z "$cwd" ] && cwd=$(j '.cwd')
 dir_name=$(basename "${cwd:-?}")
-transcript=$(j '.transcript_path // empty')
 
 git_info=""
 if [ -n "$cwd" ] && git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
@@ -31,33 +30,11 @@ if [ -L "$HOME/.claude/CLAUDE.md" ]; then
     [ -n "$ident" ] && ident_info=$(printf " \033[0;35m%s\033[0m" "$ident")
 fi
 
-files_info=""
-if [ -n "$transcript" ] && [ -f "$transcript" ] && command -v jq >/dev/null 2>&1; then
-    n_lu=$(jq -r 'select(.type=="assistant") | .message.content[]?
-                  | select(.type=="tool_use" and (.name=="Read" or .name=="Edit" or .name=="Write" or .name=="NotebookEdit"))
-                  | .input.file_path // empty' "$transcript" 2>/dev/null \
-           | awk 'NF' | sort -u | wc -l | tr -d ' ')
-
-    # in-ctx: reads after the last compaction marker. No marker → in-ctx == lu.
-    cutoff=$(grep -nE '"isCompactSummary"[[:space:]]*:[[:space:]]*true|"type"[[:space:]]*:[[:space:]]*"summary"|<command-name>compact' \
-             "$transcript" 2>/dev/null | tail -1 | cut -d: -f1)
-    if [ -n "$cutoff" ]; then
-        n_inctx=$(tail -n +"$cutoff" "$transcript" 2>/dev/null \
-                  | jq -r 'select(.type=="assistant") | .message.content[]?
-                           | select(.type=="tool_use" and (.name=="Read" or .name=="Edit" or .name=="Write" or .name=="NotebookEdit"))
-                           | .input.file_path // empty' 2>/dev/null \
-                  | awk 'NF' | sort -u | wc -l | tr -d ' ')
-    else
-        n_inctx=$n_lu
-    fi
-
-    if [ "$n_lu" -gt 0 ] 2>/dev/null; then
-        if [ "$n_inctx" -eq "$n_lu" ]; then
-            files_info=$(printf " \033[2;37mread:%d\033[0m" "$n_lu")
-        else
-            files_info=$(printf " \033[2;37mread:%d \033[0;33mctx:%d\033[0m" "$n_lu" "$n_inctx")
-        fi
-    fi
+lang_info=""
+LEX_LANG_FILE="$HOME/.claude/lex-claude/.lang"
+if [ -f "$LEX_LANG_FILE" ]; then
+    lang=$(tr -d '[:space:]' < "$LEX_LANG_FILE" 2>/dev/null)
+    [ -n "$lang" ] && lang_info=$(printf " \033[2;35mlang:%s\033[0m" "$lang")
 fi
 
 tok_info=""
@@ -80,4 +57,4 @@ if [ -n "$ctx_tokens" ]; then
 fi
 
 printf "\033[1;32m➜\033[0m  \033[0;36m%s\033[0m%s%s%s%s" \
-    "$dir_name" "$git_info" "$ident_info" "$files_info" "$tok_info"
+    "$dir_name" "$git_info" "$ident_info" "$lang_info" "$tok_info"
