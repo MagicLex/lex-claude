@@ -600,33 +600,39 @@ cmd_codex() {
   command -v codex >/dev/null 2>&1 || die "codex not found on PATH"
 
   local print_only=0
-  case "${1:-}" in
-    --print) print_only=1; shift ;;
-    -h|--help|help)
+  local context_mode="full"
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      --print) print_only=1; shift ;;
+      --lite) context_mode="lite"; shift ;;
+      --full) context_mode="full"; shift ;;
+      -h|--help|help)
       cat <<'EOF'
 lc codex. launch Codex with lex-claude context preloaded.
 
 Usage:
-  lc codex
-  lc codex "your first prompt"
-  lc codex --print
-  lc codex --print "your first prompt"
+  lc codex [--lite|--full] [prompt]
+  lc codex --print [--lite|--full] [prompt]
 
 Behavior:
-  Builds the same context as the Claude SessionStart hook:
-  active identity, project CLAUDE.md, docs/*, lc command reference, and lang.
+  Builds the same context as the Claude SessionStart hook.
+  --full loads: active identity, project CLAUDE.md, docs/*, lc command reference, and lang.
+  --lite loads: active identity, project CLAUDE.md, lc command reference, and lang.
   Then launches `codex` with that bundle as the initial prompt.
 EOF
       return
       ;;
-  esac
+      --*) die "unknown flag: $1 (expected --print, --lite, --full)" ;;
+      *) break ;;
+    esac
+  done
 
   local hook_script="$SELF_DIR/hook.sh"
   [ -f "$hook_script" ] || hook_script="$INSTALL_DIR/hook.sh"
   [ -f "$hook_script" ] || die "hook.sh not found"
 
   local prompt=""
-  prompt="$(CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
+  prompt="$(LEX_CLAUDE_CONTEXT_MODE="$context_mode" CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
 
   if [ $# -gt 0 ]; then
     prompt="${prompt}
@@ -658,13 +664,13 @@ _lc() {
     'lang:set Claude reply language (en|fr|off)'
     'github-login:wire gh + git auth'
     'awake:keep Mac awake (caffeinate wrapper)'
-    'codex:launch Codex with identity + docs preloaded'
+    'codex:launch Codex with lex-claude context preloaded'
     'init:shell completion + context dump'
     'doctor:sanity-check the install'
     'version:print install version'
   )
   awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid')
-  codex_cmds=('--print:dump the generated prompt' 'help:show help')
+  codex_cmds=('--print:dump the generated prompt' '--lite:load identity + project CLAUDE.md only' '--full:load full docs bundle' 'help:show help')
   init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
   identity_cmds=('new:create a new identity')
   rules_cmds=('sync:re-inject RULES.md')
@@ -700,7 +706,7 @@ _lc() {
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
-    codex)         COMPREPLY=( $(compgen -W "--print help" -- "$cur") ) ;;
+    codex)         COMPREPLY=( $(compgen -W "--print --lite --full help" -- "$cur") ) ;;
     init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
     rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
@@ -728,8 +734,8 @@ Available subcommands (run with `lc <cmd>`):
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
 - `awake status`                              inspect (shows pid, started, command)
-- `codex [prompt]`                            launch Codex with identity + docs preloaded
-- `codex --print [prompt]`                    print the generated Codex prompt
+- `codex [--lite|--full] [prompt]`            launch Codex with lex-claude context preloaded
+- `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth

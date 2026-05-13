@@ -37,20 +37,27 @@ claude --plugin-dir /path/to/lex-claude
 
 Codex does not expose the same `SessionStart` hook surface as Claude Code, so `lc codex` acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
 
-That means `lc codex` loads:
+Modes:
 
+- `lc codex --full` loads:
 - the active global identity from `~/.claude/CLAUDE.md`
 - the current project's `CLAUDE.md` if present
 - `docs/PHILOSOPHY.md`, `docs/CONTEXT.md`, `docs/PRINCIPLES.md`, `docs/INVARIANTS.md`, `docs/OPS.md`, `docs/TODO.md` if present
 - the `lc` command reference
 - the active `lc lang` setting
 
+- `lc codex --lite` loads:
+- the active global identity from `~/.claude/CLAUDE.md`
+- the current project's `CLAUDE.md` if present
+- the `lc` command reference
+- the active `lc lang` setting
+
 Examples:
 
 ```bash
-lc codex
-lc codex "review this repo and tell me the main risks"
-lc codex --print
+lc codex --lite
+lc codex --full "review this repo and tell me the main risks"
+lc codex --print --lite
 ```
 
 ## CLI
@@ -65,8 +72,8 @@ lc identity new --name <n> --desc "<persona>"      # create identity (persona + 
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
 lc lang [en|fr|off]                                # set / clear Claude reply language (hook injects, statusline shows)
-lc codex [prompt]                                  # launch Codex with active identity + project docs preloaded
-lc codex --print [prompt]                          # inspect the generated Codex prompt without launching
+lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
+lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
