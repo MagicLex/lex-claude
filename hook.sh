@@ -6,6 +6,8 @@
 
 [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] && exit 0
 
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 if [ -f "$HOME/.claude/CLAUDE.md" ]; then
   printf '\n===== ~/.claude/CLAUDE.md (global) =====\n'
   cat "$HOME/.claude/CLAUDE.md"
@@ -19,7 +21,8 @@ for f in CLAUDE.md docs/PHILOSOPHY.md docs/CONTEXT.md docs/PRINCIPLES.md docs/IN
   fi
 done
 
-LEX_CLAUDE_CLI="$HOME/.claude/lex-claude/bin/lex-claude"
+LEX_CLAUDE_CLI="$SELF_DIR/bin/lex-claude"
+[ -x "$LEX_CLAUDE_CLI" ] || LEX_CLAUDE_CLI="$HOME/.claude/lex-claude/bin/lex-claude"
 if [ -x "$LEX_CLAUDE_CLI" ]; then
   printf '\n===== lex-claude commands (lc) =====\n'
   "$LEX_CLAUDE_CLI" init claude
@@ -36,4 +39,4 @@ fi
 
 printf '\n---\nThe rules above are loaded in context (global CLAUDE.md + project CLAUDE.md + docs + lex-claude commands). Acknowledge them to the user concisely. Repeat back two or three of the most relevant rules or principles so the user can see they landed, and list the documentation files that were just loaded above so the user knows what is in context. Do not say you will read them, you already have.\n'
 
-date +%s > "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true
+sh -c 'date +%s > "$1"' sh "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true

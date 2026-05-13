@@ -10,6 +10,7 @@ BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/lex-claude"
 BIN_ALIAS="$BIN_DIR/lc"
 LANG_FILE="$INSTALL_DIR/.lang"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -64,6 +65,8 @@ Usage:
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
   lex-claude awake off|status                        Stop or inspect the assertion.
+  lex-claude codex [prompt]                          Launch Codex with active identity + project docs injected as the initial prompt.
+  lex-claude codex --print [prompt]                  Print the prompt that would be sent to Codex.
   lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude doctor             Sanity-check the install.
@@ -593,13 +596,60 @@ EOF
   fi
 }
 
+cmd_codex() {
+  command -v codex >/dev/null 2>&1 || die "codex not found on PATH"
+
+  local print_only=0
+  case "${1:-}" in
+    --print) print_only=1; shift ;;
+    -h|--help|help)
+      cat <<'EOF'
+lc codex. launch Codex with lex-claude context preloaded.
+
+Usage:
+  lc codex
+  lc codex "your first prompt"
+  lc codex --print
+  lc codex --print "your first prompt"
+
+Behavior:
+  Builds the same context as the Claude SessionStart hook:
+  active identity, project CLAUDE.md, docs/*, lc command reference, and lang.
+  Then launches `codex` with that bundle as the initial prompt.
+EOF
+      return
+      ;;
+  esac
+
+  local hook_script="$SELF_DIR/hook.sh"
+  [ -f "$hook_script" ] || hook_script="$INSTALL_DIR/hook.sh"
+  [ -f "$hook_script" ] || die "hook.sh not found"
+
+  local prompt=""
+  prompt="$(CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
+
+  if [ $# -gt 0 ]; then
+    prompt="${prompt}
+
+===== user prompt =====
+$*"
+  fi
+
+  if [ $print_only -eq 1 ]; then
+    printf '%s\n' "$prompt"
+    return
+  fi
+
+  exec codex "$prompt"
+}
+
 cmd_init() {
   case "${1:-help}" in
     zsh)
       cat <<'EOF'
 # lex-claude zsh completion. Add to ~/.zshrc: eval "$(lc init zsh)"
 _lc() {
-  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds
+  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds
   cmds=(
     'install:bootstrap clone + symlinks + hooks'
     'update:pull latest and redeploy'
@@ -608,11 +658,13 @@ _lc() {
     'lang:set Claude reply language (en|fr|off)'
     'github-login:wire gh + git auth'
     'awake:keep Mac awake (caffeinate wrapper)'
+    'codex:launch Codex with identity + docs preloaded'
     'init:shell completion + context dump'
     'doctor:sanity-check the install'
     'version:print install version'
   )
   awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid')
+  codex_cmds=('--print:dump the generated prompt' 'help:show help')
   init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
   identity_cmds=('new:create a new identity')
   rules_cmds=('sync:re-inject RULES.md')
@@ -624,6 +676,7 @@ _lc() {
     args)
       case $words[1] in
         awake)    _describe 'awake' awake_cmds ;;
+        codex)    _describe 'codex' codex_cmds ;;
         init)     _describe 'init target' init_cmds ;;
         identity) _describe 'identity action' identity_cmds ;;
         rules)    _describe 'rules action' rules_cmds ;;
@@ -643,10 +696,11 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules lang github-login awake init doctor version"
+  cmds="install update identity rules lang github-login awake codex init doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
+    codex)         COMPREPLY=( $(compgen -W "--print help" -- "$cur") ) ;;
     init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
     rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
@@ -674,6 +728,8 @@ Available subcommands (run with `lc <cmd>`):
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
 - `awake status`                              inspect (shows pid, started, command)
+- `codex [prompt]`                            launch Codex with identity + docs preloaded
+- `codex --print [prompt]`                    print the generated Codex prompt
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth
@@ -746,7 +802,7 @@ cmd_doctor() {
 }
 
 case "${1:-}" in
-  install|update|rules|lang|version|github-login|awake|init|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|lang|version|github-login|awake|codex|init|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -758,6 +814,7 @@ case "${1:-}" in
   lang)         shift; cmd_lang "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;
   awake)        shift; cmd_awake "$@" ;;
+  codex)        shift; cmd_codex "$@" ;;
   init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   version|-v|--version) cmd_version ;;

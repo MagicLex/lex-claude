@@ -33,6 +33,26 @@ claude --plugin-dir /path/to/lex-claude
 
 …or install it through the marketplace (`/plugin` inside Claude Code, point it at this repo). Plugin-installed skills are namespaced as `/lex-claude:lc-invariants`, `/lex-claude:lc-exploration`, etc. The standalone `lc install` path keeps short names (`/lc-invariants`).
 
+## Codex bridge
+
+Codex does not expose the same `SessionStart` hook surface as Claude Code, so `lc codex` acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
+
+That means `lc codex` loads:
+
+- the active global identity from `~/.claude/CLAUDE.md`
+- the current project's `CLAUDE.md` if present
+- `docs/PHILOSOPHY.md`, `docs/CONTEXT.md`, `docs/PRINCIPLES.md`, `docs/INVARIANTS.md`, `docs/OPS.md`, `docs/TODO.md` if present
+- the `lc` command reference
+- the active `lc lang` setting
+
+Examples:
+
+```bash
+lc codex
+lc codex "review this repo and tell me the main risks"
+lc codex --print
+```
+
 ## CLI
 
 ```
@@ -45,6 +65,8 @@ lc identity new --name <n> --desc "<persona>"      # create identity (persona + 
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
 lc lang [en|fr|off]                                # set / clear Claude reply language (hook injects, statusline shows)
+lc codex [prompt]                                  # launch Codex with active identity + project docs preloaded
+lc codex --print [prompt]                          # inspect the generated Codex prompt without launching
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
