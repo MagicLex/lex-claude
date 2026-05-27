@@ -57,7 +57,8 @@ Usage:
   lex-claude identity <name>                         Switch active identity.
   lex-claude identity new --name <n> --desc "<d>"    Create identity (persona + shared rules).
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
-  lex-claude rules sync                              Re-inject RULES.md into all managed identities.
+  lex-claude rules sync                              Re-inject RULES.md into all managed identities (deployed install).
+  lex-claude rules sync --repo [DIR]                 Same, but against a dev checkout (DIR, default \$PWD). Then commit/push from there.
   lex-claude lang                                    Print active language (en/fr/off).
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
@@ -261,21 +262,22 @@ cmd_update() {
 }
 
 sync_rules() {
-  [ -f "$INSTALL_DIR/RULES.md" ] || return 0
+  local base="${1:-$INSTALL_DIR}"
+  [ -f "$base/RULES.md" ] || return 0
   local f n=0
-  for f in "$INSTALL_DIR"/identities/*.md; do
+  for f in "$base"/identities/*.md; do
     [ -f "$f" ] || continue
     grep -q '^<!-- LC_RULES_BEGIN -->' "$f" || continue
     {
       awk '/^<!-- LC_RULES_BEGIN -->/{exit} {print}' "$f"
       printf '<!-- LC_RULES_BEGIN -->\n'
-      cat "$INSTALL_DIR/RULES.md"
+      cat "$base/RULES.md"
       printf '<!-- LC_RULES_END -->\n'
       awk 'flag{print} /^<!-- LC_RULES_END -->/{flag=1}' "$f"
     } > "$f.tmp" && mv "$f.tmp" "$f"
     n=$((n+1))
   done
-  echo "rules: synced into $n identit$([ $n -eq 1 ] && echo y || echo ies)"
+  echo "rules: synced into $n identit$([ $n -eq 1 ] && echo y || echo ies)$([ "$base" = "$INSTALL_DIR" ] || echo " ($base)")"
 }
 
 identity_new() {
@@ -326,10 +328,19 @@ identity_new() {
 }
 
 cmd_rules() {
-  case "${1:-}" in
-    sync) sync_rules ;;
-    "") sync_rules ;;
-    *) die "unknown rules subcommand: $1 (expected: sync)" ;;
+  local sub="${1:-sync}"
+  [ $# -gt 0 ] && shift
+  case "$sub" in
+    sync)
+      local base="$INSTALL_DIR"
+      if [ "${1:-}" = "--repo" ]; then
+        base="${2:-$PWD}"
+        [ -d "$base/identities" ] || die "no identities/ under $base (run from your lex-claude checkout, or: lc rules sync --repo <dir>)"
+        [ -f "$base/RULES.md" ] || die "no RULES.md under $base"
+      fi
+      sync_rules "$base"
+      ;;
+    *) die "unknown rules subcommand: $sub (expected: sync)" ;;
   esac
 }
 
@@ -728,7 +739,8 @@ Available subcommands (run with `lc <cmd>`):
 - `identity <name>`                           switch active identity
 - `identity new --name <n> --desc "<d>"`      create identity (with shared rules)
 - `identity new --name <n> --empty`           create identity (no shared rules)
-- `rules sync`                                re-inject RULES.md into all identities
+- `rules sync`                                re-inject RULES.md into all identities (deployed install)
+- `rules sync --repo [DIR]`                   re-inject in a dev checkout (DIR, default $PWD), then commit there
 - `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
