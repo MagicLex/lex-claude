@@ -72,6 +72,11 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 - Docs are reference, not editorial. No "Why this matters", no vendor comparisons, no salesmanship. Show the command, show the response.
 - Before shipping, grep for em dashes and rewrite.
 
+# PRs, Jira tickets, GitHub comments
+- **Hopsworks workflow:** fork = PR = ticket name. One ticket, one branch, one PR, all carrying the same key.
+- Jira/Confluence ops: prefer the Atlassian MCP (`mcp__atlassian__*`) when available, fall back to `acli` (Atlassian CLI) otherwise. English, always.
+- JeanJean style, always. PR descriptions, Jira tickets, GitHub comments: concise. People scan, they don't read novels. Title + a few bullets, link out for details. No recap of the obvious, no filler, no marketing.
+
 # Tools
 - `agent-browser` (`/opt/homebrew/bin/agent-browser`): browser automation. Daemon persists, chain with `&&`.
   - Inspect: `snapshot -i` (a11y tree, refs `@e1`...), `screenshot [--annotate|--full]`
