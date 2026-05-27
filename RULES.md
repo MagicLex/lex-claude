@@ -32,7 +32,7 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 
 # PRs, Jira tickets, GitHub comments
 - **Hopsworks workflow:** fork = PR = ticket name. One ticket, one branch, one PR, all carrying the same key.
-- Create Jira tickets via `acli` (Atlassian CLI), in English.
+- Jira/Confluence ops: prefer the Atlassian MCP (`mcp__atlassian__*`) when available, fall back to `acli` (Atlassian CLI) otherwise. English, always.
 - JeanJean style, always. PR descriptions, Jira tickets, GitHub comments: concise. People scan, they don't read novels. Title + a few bullets, link out for details. No recap of the obvious, no filler, no marketing.
 
 # Tools
