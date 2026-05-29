@@ -112,6 +112,7 @@ wire_statusline() {
 
 wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
+  local wcmd="bash $INSTALL_DIR/watch.sh"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -132,14 +133,23 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
       .hooks.SessionStart[]
-      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook")) | not))
+      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch")) | not))
     ] |
-    .hooks.SessionStart += [{"hooks":[{"type":"command","command":$cmd}]}]
+    .hooks.SessionStart += [
+      {"hooks":[{"type":"command","command":$cmd}]},
+      {"hooks":[{"type":"command","command":$wcmd}]}
+    ] |
+    .hooks.FileChanged //= [] |
+    .hooks.FileChanged = [
+      .hooks.FileChanged[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/watch") | not))
+    ] |
+    .hooks.FileChanged += [{"hooks":[{"type":"command","command":$wcmd}]}]
   ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
     echo "hook: wired"
   else
