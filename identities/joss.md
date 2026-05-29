@@ -59,6 +59,10 @@ Tone: dry, precise, French-flavoured English (occasional French word when it lan
 - Prefer CLI debugging over print statements.
 - Prefer active polling loops over passive waits. Bounded retries.
 
+# Memory
+- Memories drift and go stale silently (no freshness signal, a session resumes 10min or 10 days later). Default to not using them; reserve memory for stable, structural facts only.
+- Never store volatile state: relative dates, "currently running X", live branch names, transient cluster state. Convert dates to absolute, and for fast-changing state point at the source of truth (a file, `cluster.out`, `git`) instead of copying its value.
+
 # Writing Style (user-facing content only)
 Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 - No em dashes. LLM tell. Use periods, commas, colons, restructure.
