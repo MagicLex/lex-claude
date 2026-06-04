@@ -64,6 +64,7 @@ lc codex --print --lite
 
 ```
 lc install [--yes]                                 # bootstrap (idempotent). Prompts before overwriting existing files.
+lc install --hops-only                             # install only the hopsdev binary + PATH (no identity/rules/skills/hook)
 lc update                                          # git pull + sync rules + redeploy
 lc version                                         # print install version (v<commit-count> + date)
 lc identity                                        # list, active marked *
@@ -77,6 +78,19 @@ lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
+
+### hopsdev
+
+Sibling binary deployed alongside `lc` (full install, or `lc install --hops-only`). Points the local `hops` CLI at a hopsworks-api branch so you stop hand-running clone + `uv pip install` + skill relink on every box.
+
+```
+hopsdev <branch>                 # clone MagicLex/hopsworks-api@branch, uv pip install -e, relink skills, verify
+hopsdev <owner/repo>@<branch>    # same, from a different fork (or a full https/ssh git URL)
+hopsdev --quick <spec>           # skip clone + skills: uv pip install --force-reinstall git+...@branch
+hopsdev --status                 # show where 'hops' resolves now
+```
+
+Run inside the venv where `hops` lives (uv targets the active env). Skill relink only touches symlinks pointing into the hopsdev clone base (`$TMPDIR/hopsdev`, override with `HOPSDEV_HOME`); `lc` skills and `my-skills` are left alone. Default repo is `MagicLex/hopsworks-api` (override with `HOPSDEV_REPO`).
 
 **Auto-update**: on every command (except `install` / `update` / `rules` / `lang` / `version` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
@@ -149,6 +163,7 @@ lex-claude/
 ├── .claude-plugin/
 │   └── plugin.json              ← Claude Code plugin manifest
 ├── bin/lex-claude               ← CLI
+├── bin/hopsdev                  ← hopsworks-api branch switcher (deployed alongside lc)
 ├── hook.sh                      ← SessionStart hook
 ├── RULES.md                     ← canonical shared rules
 ├── identities/
