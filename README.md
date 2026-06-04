@@ -76,6 +76,7 @@ lc lang [en|fr|off]                                # set / clear Claude reply la
 lc skip on|off|status                              # toggle shell alias: claude defaults to --dangerously-skip-permissions
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
+lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
 ```
@@ -94,7 +95,7 @@ hopsdev init [dir]               # clone logicalclocks/workspaces into [dir] (de
 
 Run inside the venv where `hops` lives (uv targets the active env). Skill relink only touches symlinks pointing into the hopsdev clone base (`$TMPDIR/hopsdev`, override with `HOPSDEV_HOME`); `lc` skills and `my-skills` are left alone. Default repo is `MagicLex/hopsworks-api` (override with `HOPSDEV_REPO`).
 
-**Auto-update**: on every command (except `install` / `update` / `rules` / `lang` / `version` / `help`), checks `origin/main` 1× / 24h. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
+**Auto-update**: `lc` checks `origin/main` 1× / 24h, but only on unknown commands. The known local subcommands (`install` `update` `identity` `rules` `lang` `skip` `version` `github-login` `awake` `codex` `init` `doctor` `usage` `help`) skip the network check. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
 ## Kill switches (env vars)
 
@@ -103,8 +104,18 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_DISABLE=1`: hook.sh exits early; nothing gets injected at SessionStart. Useful when debugging context bloat or comparing with/without the hook.
 - `LEX_CLAUDE_NO_AUTO_UPDATE=1`: disables the daily `git pull` + re-exec on `lc <cmd>`. Use when you want frozen behaviour (CI runs, shared machines, long-running scripts).
 - `LEX_CLAUDE_YES=1`: equivalent to `lc install --yes`; skips the destructive-overwrite prompt. Use only when you've read the warning above and accept it.
+- `LEX_CLAUDE_NO_USAGE=1`: turns off usage logging (`lc usage` keeps reading the existing log but records nothing new). `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
+
+## Usage trace (debloat aid)
+
+`usage.sh` records what actually gets used so dead surface gets cut with data, not a guess. Three feeds, one append-only log at `~/.claude/lex-claude/usage.log` (`epoch<TAB>source<TAB>name`):
+
+- **CLI**: the `lc` and `hopsdev` dispatchers log the top-level command (best-effort, never blocks the command).
+- **Skills**: a `PreToolUse` hook matching the `Skill` tool logs each skill Claude invokes.
+
+`lc usage` tallies the log and lists, per source, what's used and what's **never used** (the debloat candidates). Off via `LEX_CLAUDE_NO_USAGE=1`. The log is local only, never synced.
 
 ## Identity architecture
 
@@ -167,6 +178,9 @@ lex-claude/
 ├── bin/lex-claude               ← CLI
 ├── bin/hopsdev                  ← hopsworks-api branch switcher (deployed alongside lc)
 ├── hook.sh                      ← SessionStart hook
+├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
+├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
+├── statusline-command.sh        ← managed statusline
 ├── RULES.md                     ← canonical shared rules
 ├── identities/
 │   ├── jeanjean.md              ← persona + synced rules block

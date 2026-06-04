@@ -13,6 +13,11 @@ WORKSPACES_REPO="${WORKSPACES_REPO:-https://github.com/logicalclocks/workspaces.
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
 
+# usage trace — share lex-claude's logger so 'lc usage' sees hopsdev too.
+USAGE_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/usage.sh"
+[ -f "$USAGE_SH" ] || USAGE_SH="$HOME/.claude/lex-claude/usage.sh"
+log_usage() { [ -f "$USAGE_SH" ] && bash "$USAGE_SH" log hopsdev "$1" 2>/dev/null || true; }
+
 usage() {
   cat <<EOF
 hopsdev. point your local hops CLI at a hopsworks-api branch.
@@ -114,6 +119,7 @@ run() {
 
   need uv
   need git
+  [ "$quick" -eq 1 ] && log_usage quick || log_usage run
 
   local repo branch
   case "$spec" in
@@ -154,7 +160,7 @@ run() {
 
 case "${1:-}" in
   -h|--help|help|"") usage ;;
-  --status)          verify ;;
-  init)              shift; ws_init "$@" ;;
+  --status)          log_usage status; verify ;;
+  init)              log_usage init; shift; ws_init "$@" ;;
   *)                 run "$@" ;;
 esac

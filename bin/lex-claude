@@ -73,6 +73,7 @@ Usage:
   lex-claude codex --print [prompt]                  Print the prompt that would be sent to Codex.
   lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
+  lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -123,6 +124,7 @@ wire_statusline() {
 wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
   local wcmd="bash $INSTALL_DIR/watch.sh"
+  local ucmd="bash $INSTALL_DIR/usage.sh hook"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -143,7 +145,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -159,7 +161,13 @@ wire_hook() {
       .hooks.FileChanged[]
       | select(all(.hooks[]?; (.command // "") | test("lex-claude/watch") | not))
     ] |
-    .hooks.FileChanged += [{"hooks":[{"type":"command","command":$wcmd}]}]
+    .hooks.FileChanged += [{"hooks":[{"type":"command","command":$wcmd}]}] |
+    .hooks.PreToolUse //= [] |
+    .hooks.PreToolUse = [
+      .hooks.PreToolUse[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/usage") | not))
+    ] |
+    .hooks.PreToolUse += [{"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}]
   ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
     echo "hook: wired"
   else
@@ -772,6 +780,7 @@ _lc() {
     'awake:keep Mac awake (caffeinate wrapper)'
     'codex:launch Codex with lex-claude context preloaded'
     'init:shell completion + context dump'
+    'usage:report used / never-used commands + skills'
     'doctor:sanity-check the install'
     'version:print install version'
   )
@@ -812,7 +821,7 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules lang skip github-login awake codex init doctor version"
+  cmds="install update identity rules lang skip github-login awake codex init usage doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
@@ -853,6 +862,7 @@ Available subcommands (run with `lc <cmd>`):
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth
+- `usage`                                     report which commands + skills get used (never-used = debloat candidates)
 - `doctor`                                    sanity-check the install
 - `update`                                    pull latest + redeploy
 - `version`                                   print install version
@@ -933,13 +943,33 @@ cmd_doctor() {
     echo "warn  hopsdev not symlinked (run 'lc update' or 'lc install --hops-only')"
   fi
   ensure_path_in_rc || ok=0
+  grep -q "lex-claude/usage" "$SETTINGS" 2>/dev/null && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
   [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
 }
 
+cmd_usage() {
+  local script="$SELF_DIR/usage.sh"
+  [ -x "$script" ] || script="$INSTALL_DIR/usage.sh"
+  [ -x "$script" ] || die "usage.sh not found (run 'lc update')"
+  bash "$script" report
+}
+
 case "${1:-}" in
-  install|update|rules|lang|skip|version|github-login|awake|codex|init|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|identity|rules|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
+
+# usage trace — record the top-level command so the never-used surface is data,
+# not a guess. Best-effort: a logging failure must never block the command.
+case "${1:-}" in
+  -v|--version)            usage_cmd=version ;;
+  -h|-help|--help|help|"") usage_cmd="" ;;
+  *)                       usage_cmd="${1:-}" ;;
+esac
+if [ -n "$usage_cmd" ]; then
+  usage_sh="$SELF_DIR/usage.sh"; [ -x "$usage_sh" ] || usage_sh="$INSTALL_DIR/usage.sh"
+  [ -x "$usage_sh" ] && bash "$usage_sh" log cli "$usage_cmd" 2>/dev/null || true
+fi
 
 case "${1:-}" in
   install)      shift; cmd_install "$@" ;;
@@ -953,6 +983,7 @@ case "${1:-}" in
   codex)        shift; cmd_codex "$@" ;;
   init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
+  usage)        shift; cmd_usage "$@" ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
   *) usage; exit 1 ;;
