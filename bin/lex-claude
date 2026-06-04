@@ -64,6 +64,7 @@ Usage:
   lex-claude lang                                    Print active language (en/fr/off).
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
+  lex-claude skip on|off|status                      Toggle a shell alias so 'claude' defaults to --dangerously-skip-permissions.
   lex-claude github-login [--token TOKEN]            Wire gh + git auth from a GitHub token (env: GITHUB_TOKEN). Prompts if no token and interactive.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
@@ -461,6 +462,48 @@ ensure_path_in_rc() {
   echo "fix   appended PATH export to $rc. re-source it: source $rc"
 }
 
+SKIP_BEGIN='# >>> lex-claude skip >>>'
+SKIP_END='# <<< lex-claude skip <<<'
+
+rc_file() {
+  case "$(basename "${SHELL:-}")" in
+    zsh)  echo "$HOME/.zshrc" ;;
+    bash) echo "$HOME/.bashrc" ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_skip() {
+  local rc
+  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'"
+  case "${1:-status}" in
+    on)
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+        echo "skip: already on ($rc)"
+      else
+        printf '\n%s\nalias claude='\''claude --dangerously-skip-permissions'\''\n%s\n' \
+          "$SKIP_BEGIN" "$SKIP_END" >> "$rc"
+        echo "skip: on. claude now defaults to --dangerously-skip-permissions"
+      fi
+      echo "re-source: source $rc  (or open a new shell)"
+      ;;
+    off)
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+        awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
+          '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
+        echo "skip: off. re-source: source $rc (or new shell). in this shell: unalias claude"
+      else
+        echo "skip: already off"
+      fi
+      ;;
+    status|"")
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then echo "skip: on ($rc)"; else echo "skip: off"; fi
+      echo "toggle: lc skip on|off"
+      ;;
+    *) die "unknown skip arg: $1 (expected: on, off, status)" ;;
+  esac
+}
+
 cmd_github_login() {
   local token=""
   while [ $# -gt 0 ]; do
@@ -717,13 +760,14 @@ cmd_init() {
       cat <<'EOF'
 # lex-claude zsh completion. Add to ~/.zshrc: eval "$(lc init zsh)"
 _lc() {
-  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds install_cmds lang_cmds
+  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds install_cmds lang_cmds skip_cmds
   cmds=(
     'install:bootstrap clone + symlinks + hooks'
     'update:pull latest and redeploy'
     'identity:manage active identity'
     'rules:sync RULES.md across identities'
     'lang:set Claude reply language (en|fr|off)'
+    'skip:toggle claude --dangerously-skip-permissions alias'
     'github-login:wire gh + git auth'
     'awake:keep Mac awake (caffeinate wrapper)'
     'codex:launch Codex with lex-claude context preloaded'
@@ -738,6 +782,7 @@ _lc() {
   identity_cmds=('new:create a new identity')
   rules_cmds=('sync:re-inject RULES.md')
   lang_cmds=('en:English' 'fr:French' 'off:clear (Claude picks)')
+  skip_cmds=('on:enable the alias' 'off:remove the alias' 'status:show current state')
   local state
   _arguments -C '1: :->cmd' '*::arg:->args'
   case $state in
@@ -751,6 +796,7 @@ _lc() {
         identity) _describe 'identity action' identity_cmds ;;
         rules)    _describe 'rules action' rules_cmds ;;
         lang)     _describe 'lang' lang_cmds ;;
+        skip)     _describe 'skip' skip_cmds ;;
       esac
       ;;
   esac
@@ -766,7 +812,7 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules lang github-login awake codex init doctor version"
+  cmds="install update identity rules lang skip github-login awake codex init doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
@@ -776,6 +822,7 @@ _lc() {
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
     rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
     lang)          COMPREPLY=( $(compgen -W "en fr off" -- "$cur") ) ;;
+    skip)          COMPREPLY=( $(compgen -W "on off status" -- "$cur") ) ;;
   esac
 }
 complete -F _lc lc
@@ -796,6 +843,7 @@ Available subcommands (run with `lc <cmd>`):
 - `rules sync`                                re-inject RULES.md into all identities (deployed install)
 - `rules sync --repo [DIR]`                   re-inject in a dev checkout (DIR, default $PWD), then commit there
 - `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
+- `skip on|off|status`                        toggle a shell alias: claude defaults to --dangerously-skip-permissions
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
@@ -889,7 +937,7 @@ cmd_doctor() {
 }
 
 case "${1:-}" in
-  install|update|rules|lang|version|github-login|awake|codex|init|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|rules|lang|skip|version|github-login|awake|codex|init|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -899,6 +947,7 @@ case "${1:-}" in
   identity)     shift; cmd_identity "$@" ;;
   rules)        shift; cmd_rules "$@" ;;
   lang)         shift; cmd_lang "$@" ;;
+  skip)         shift; cmd_skip "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;
   awake)        shift; cmd_awake "$@" ;;
   codex)        shift; cmd_codex "$@" ;;

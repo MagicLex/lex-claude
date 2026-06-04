@@ -73,6 +73,7 @@ lc identity new --name <n> --desc "<persona>"      # create identity (persona + 
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
 lc lang [en|fr|off]                                # set / clear Claude reply language (hook injects, statusline shows)
+lc skip on|off|status                              # toggle shell alias: claude defaults to --dangerously-skip-permissions
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
