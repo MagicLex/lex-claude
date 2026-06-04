@@ -80,6 +80,7 @@ Sibling binary (deployed alongside lc):
   hopsdev <owner/repo>@<branch> Same, from a different fork.
   hopsdev --quick <spec>        Skip clone: uv pip install --force-reinstall git+...@branch.
   hopsdev --status              Show where 'hops' resolves now.
+  hopsdev init [dir]            Clone logicalclocks/workspaces into [dir] (default ./workspaces).
 EOF
 }
 
@@ -815,6 +816,7 @@ CLI at a hopsworks-api branch):
 - `hopsdev <owner/repo>@<branch>`              same, from a different fork (or a full git URL)
 - `hopsdev --quick <spec>`                     skip clone + skills: uv pip install --force-reinstall git+...@branch
 - `hopsdev --status`                           show where `hops` resolves now
+- `hopsdev init [dir]`                         clone logicalclocks/workspaces into [dir] (default ./workspaces)
 - `lc install --hops-only`                     install just `hopsdev` (no identity/rules/skills/hook)
 
 Notes:

@@ -88,6 +88,7 @@ hopsdev <branch>                 # clone MagicLex/hopsworks-api@branch, uv pip i
 hopsdev <owner/repo>@<branch>    # same, from a different fork (or a full https/ssh git URL)
 hopsdev --quick <spec>           # skip clone + skills: uv pip install --force-reinstall git+...@branch
 hopsdev --status                 # show where 'hops' resolves now
+hopsdev init [dir]               # clone logicalclocks/workspaces into [dir] (default ./workspaces), print next steps
 ```
 
 Run inside the venv where `hops` lives (uv targets the active env). Skill relink only touches symlinks pointing into the hopsdev clone base (`$TMPDIR/hopsdev`, override with `HOPSDEV_HOME`); `lc` skills and `my-skills` are left alone. Default repo is `MagicLex/hopsworks-api` (override with `HOPSDEV_REPO`).

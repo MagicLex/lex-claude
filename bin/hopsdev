@@ -8,6 +8,7 @@ set -euo pipefail
 DEFAULT_REPO="${HOPSDEV_REPO:-MagicLex/hopsworks-api}"
 CLONE_BASE="${HOPSDEV_HOME:-${TMPDIR:-/tmp}/hopsdev}"
 SKILLS_DIR="$HOME/.claude/skills"
+WORKSPACES_REPO="${WORKSPACES_REPO:-git@github.com:logicalclocks/workspaces.git}"
 
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
@@ -22,15 +23,40 @@ Usage:
   hopsdev <git-url>@<branch>       same, from a full git URL (https or ssh)
   hopsdev --quick <spec>           skip clone + skills: uv pip install --force-reinstall git+...
   hopsdev --status                 show where 'hops' resolves now
+  hopsdev init [dir]               clone logicalclocks/workspaces into [dir] (default ./workspaces), then print next steps
 
 Examples:
   hopsdev HFRONT-1543-fti-run-fixes
   hopsdev someone/hopsworks-api@my-branch
   hopsdev --quick HFRONT-1543-fti-run-fixes
+  hopsdev init
 
 Env:
-  HOPSDEV_REPO   default repo as owner/name (default: $DEFAULT_REPO)
-  HOPSDEV_HOME   clone base dir (default: \$TMPDIR/hopsdev)
+  HOPSDEV_REPO     default repo as owner/name (default: $DEFAULT_REPO)
+  HOPSDEV_HOME     clone base dir (default: \$TMPDIR/hopsdev)
+  WORKSPACES_REPO  workspaces repo url (default: $WORKSPACES_REPO)
+EOF
+}
+
+# clone (or refresh) the workspaces repo so you don't have to hunt the url.
+# does NOT run its scripts/init.sh: that one is interactive and clones many
+# repos. just bring the repo, then print the README's next steps.
+ws_init() {
+  need git
+  local dest="${1:-$PWD/workspaces}"
+  if [ -d "$dest/.git" ]; then
+    echo "hopsdev init: workspaces already at $dest (pull)"
+    git -C "$dest" pull --ff-only --quiet || echo "note: pull skipped (non-ff or offline)"
+  else
+    echo "hopsdev init: clone $WORKSPACES_REPO -> $dest"
+    git clone --quiet "$WORKSPACES_REPO" "$dest"
+  fi
+  cat <<EOF
+
+next (per the repo README):
+  cd $dest
+  ./scripts/init.sh                 # build base/ (idempotent, interactive)
+  ./scripts/init_workspace.sh <pr>  # scaffold a workspace, then: cd <pr> && claude
 EOF
 }
 
@@ -129,5 +155,6 @@ run() {
 case "${1:-}" in
   -h|--help|help|"") usage ;;
   --status)          verify ;;
+  init)              shift; ws_init "$@" ;;
   *)                 run "$@" ;;
 esac
