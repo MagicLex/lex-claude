@@ -8,7 +8,7 @@ set -euo pipefail
 DEFAULT_REPO="${HOPSDEV_REPO:-MagicLex/hopsworks-api}"
 CLONE_BASE="${HOPSDEV_HOME:-${TMPDIR:-/tmp}/hopsdev}"
 SKILLS_DIR="$HOME/.claude/skills"
-WORKSPACES_REPO="${WORKSPACES_REPO:-git@github.com:logicalclocks/workspaces.git}"
+WORKSPACES_REPO="${WORKSPACES_REPO:-https://github.com/logicalclocks/workspaces.git}"
 
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 not found in PATH"; }
