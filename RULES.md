@@ -23,6 +23,7 @@
 - Integration tests > unit tests.
 - Prefer CLI debugging over print statements.
 - Prefer active polling loops over passive waits. Bounded retries.
+- Resources that own threads, pools, or connections are never static/global. The runtime that hosts them owns their lifecycle (DI singleton, post-construct/pre-destroy, managed executors). Statics outlive redeploys/hot-reloads and leak; inert constants (compiled patterns, config) are fine.
 
 # Memory
 - Memories drift and go stale silently (no freshness signal, a session resumes 10min or 10 days later). Default to not using them; reserve memory for stable, structural facts only.
