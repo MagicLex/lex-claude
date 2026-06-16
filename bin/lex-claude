@@ -1023,6 +1023,7 @@ esac
 case "${1:-}" in
   -v|--version)            usage_cmd=version ;;
   -h|-help|--help|help|"") usage_cmd="" ;;
+  init)                    usage_cmd="" ;;   # plumbing: auto-fired by shell completion + SessionStart, never debloatable
   *)                       usage_cmd="${1:-}" ;;
 esac
 if [ -n "$usage_cmd" ]; then
