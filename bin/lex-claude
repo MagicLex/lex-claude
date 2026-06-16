@@ -65,7 +65,7 @@ Usage:
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
   lex-claude skip on|off|status                      Toggle a shell alias so 'claude' defaults to --dangerously-skip-permissions.
-  lex-claude github-login [--token TOKEN]            Wire gh + git auth from a GitHub token (env: GITHUB_TOKEN). Prompts if no token and interactive.
+  lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Idempotent, safe in hooks/rc.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
   lex-claude awake off|status                        Stop or inspect the assertion.
@@ -512,6 +512,61 @@ cmd_skip() {
   esac
 }
 
+github_set_identity() {
+  local who="$1"
+  [ -n "$who" ] && [ "$who" != "?" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+  if [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+    git config --global user.email "$who@users.noreply.github.com"
+    echo "git: set user.email to $who@users.noreply.github.com (override with: git config --global user.email ...)"
+  fi
+  if [ -z "$(git config --global user.name 2>/dev/null)" ]; then
+    git config --global user.name "$who"
+    echo "git: set user.name to $who"
+  fi
+}
+
+# A stored https credential must not be shadowed by a stale ssh rewrite:
+# ssh dies with the forwarded agent, the token does not.
+github_drop_ssh_rewrite() {
+  git config --global --unset "url.git@github.com:.insteadOf" 2>/dev/null || true
+}
+
+github_ssh_user() {
+  # github always closes with exit 1; success is the greeting on stderr.
+  command -v ssh >/dev/null 2>&1 || return 0
+  ssh -T git@github.com -o BatchMode=yes -o ConnectTimeout=5 2>&1 \
+    | sed -n 's/^Hi \([^!]*\)!.*successfully authenticated.*/\1/p' | head -n1 || true
+}
+
+github_login_token() {
+  local token="$1"
+  [ -n "$token" ] || die "empty token."
+  if command -v gh >/dev/null 2>&1; then
+    printf '%s' "$token" | gh auth login --with-token --hostname github.com
+    gh auth setup-git
+    github_drop_ssh_rewrite
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: authenticated as $user"
+    echo "git: gh credential helper wired for github.com"
+    github_set_identity "$user"
+  else
+    git config --global credential.helper store
+    local user
+    user=$(curl -fsSL -H "Authorization: token $token" https://api.github.com/user 2>/dev/null \
+           | sed -n 's/.*"login": *"\([^"]*\)".*/\1/p' | head -n1) || true
+    [ -n "$user" ] || die "token rejected by github api. check scope/expiry."
+    github_drop_ssh_rewrite
+    {
+      printf 'https://%s:%s@github.com\n' "$user" "$token"
+    } > "$HOME/.git-credentials"
+    chmod 600 "$HOME/.git-credentials"
+    echo "git: stored credentials in ~/.git-credentials as $user"
+    echo "note: install gh for richer auth (PRs, issues). brew install gh / apt install gh."
+    github_set_identity "$user"
+  fi
+}
+
 cmd_github_login() {
   local token=""
   while [ $# -gt 0 ]; do
@@ -521,51 +576,55 @@ cmd_github_login() {
     esac
   done
 
-  if [ -z "$token" ]; then
-    token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-  fi
-  if [ -z "$token" ]; then
-    if [ -t 0 ]; then
-      printf "github personal access token (input hidden): "
-      stty -echo 2>/dev/null || true
-      read -r token
-      stty echo 2>/dev/null || true
-      printf '\n'
-    else
-      die "no token. pass --token, set GITHUB_TOKEN, or run interactively."
-    fi
-  fi
-  [ -n "$token" ] || die "empty token."
+  # explicit token always wins (re-provisioning, rotation)
+  if [ -n "$token" ]; then github_login_token "$token"; return 0; fi
 
-  if command -v gh >/dev/null 2>&1; then
-    printf '%s' "$token" | gh auth login --with-token --hostname github.com
-    gh auth setup-git
+  # already wired: cheap no-op, safe to run from hooks/rc on every boot
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
     local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
-    echo "gh: authenticated as $user"
-    echo "git: gh credential helper wired for github.com"
-  else
-    git config --global credential.helper store
-    local user
-    user=$(curl -fsSL -H "Authorization: token $token" https://api.github.com/user 2>/dev/null \
-           | sed -n 's/.*"login": *"\([^"]*\)".*/\1/p' | head -n1)
-    [ -n "$user" ] || die "token rejected by github api. check scope/expiry."
-    {
-      printf 'https://%s:%s@github.com\n' "$user" "$token"
-    } > "$HOME/.git-credentials"
-    chmod 600 "$HOME/.git-credentials"
-    echo "git: stored credentials in ~/.git-credentials as $user"
-    echo "note: install gh for richer auth (PRs, issues). brew install gh / apt install gh."
+    echo "gh: already authenticated as $user. nothing to do."
+    github_set_identity "$user"
+    return 0
   fi
 
-  local who="${user:-MagicLex}"
-  if command -v git >/dev/null 2>&1; then
-    [ -z "$(git config --global user.email 2>/dev/null)" ] && \
-      git config --global user.email "$who@users.noreply.github.com" && \
-      echo "git: set user.email to $who@users.noreply.github.com (override with: git config --global user.email ...)"
-    [ -z "$(git config --global user.name 2>/dev/null)" ] && \
-      git config --global user.name "$who" && \
-      echo "git: set user.name to $who"
+  token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -n "$token" ]; then github_login_token "$token"; return 0; fi
+
+  # device flow: persists in ~/.config/gh, survives restarts and disconnects.
+  # preferred over the ssh rewrite whenever a human is attached.
+  if [ -t 0 ] && command -v gh >/dev/null 2>&1; then
+    echo "gh: no auth found. starting device flow (open the code in any browser)..."
+    gh auth login --web --hostname github.com --git-protocol https
+    gh auth setup-git
+    github_drop_ssh_rewrite
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: authenticated as $user. token persisted in ~/.config/gh (survives restarts)."
+    github_set_identity "$user"
+    return 0
   fi
+
+  # no tty: a forwarded ssh agent still covers git for the current session
+  local ssh_user; ssh_user=$(github_ssh_user)
+  if [ -n "$ssh_user" ]; then
+    git config --global "url.git@github.com:.insteadOf" "https://github.com/"
+    echo "git: ssh agent answers as $ssh_user. https github remotes rewritten to ssh (nothing stored)."
+    echo "gh: api not authenticated. for headless gh set GH_TOKEN, or run 'lc github-login' from a terminal."
+    github_set_identity "$ssh_user"
+    return 0
+  fi
+
+  # tty without gh: token is the only remaining path
+  if [ -t 0 ]; then
+    printf "github personal access token (input hidden): "
+    stty -echo 2>/dev/null || true
+    read -r token
+    stty echo 2>/dev/null || true
+    printf '\n'
+    github_login_token "$token"
+    return 0
+  fi
+
+  die "no auth path: gh not authenticated, no GH_TOKEN/GITHUB_TOKEN, no ssh agent, no tty for device flow."
 }
 
 cmd_awake() {
@@ -776,7 +835,7 @@ _lc() {
     'rules:sync RULES.md across identities'
     'lang:set Claude reply language (en|fr|off)'
     'skip:toggle claude --dangerously-skip-permissions alias'
-    'github-login:wire gh + git auth'
+    'github-login:wire gh + git auth (auto-detect, idempotent)'
     'awake:keep Mac awake (caffeinate wrapper)'
     'codex:launch Codex with lex-claude context preloaded'
     'init:shell completion + context dump'
@@ -861,7 +920,7 @@ Available subcommands (run with `lc <cmd>`):
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
-- `github-login [--token TOKEN]`              wire gh + git auth
+- `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent)
 - `usage`                                     report which commands + skills get used (never-used = debloat candidates)
 - `doctor`                                    sanity-check the install
 - `update`                                    pull latest + redeploy
@@ -964,6 +1023,7 @@ esac
 case "${1:-}" in
   -v|--version)            usage_cmd=version ;;
   -h|-help|--help|help|"") usage_cmd="" ;;
+  init)                    usage_cmd="" ;;   # plumbing: auto-fired by shell completion + SessionStart, never debloatable
   *)                       usage_cmd="${1:-}" ;;
 esac
 if [ -n "$usage_cmd" ]; then
