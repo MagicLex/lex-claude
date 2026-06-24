@@ -1,0 +1,4 @@
+# runtime artifacts written by hooks
+.last-hook
+usage.log
+.lang
