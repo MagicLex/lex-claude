@@ -10,6 +10,8 @@ BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/lex-claude"
 BIN_ALIAS="$BIN_DIR/lc"
 BIN_HOPS="$BIN_DIR/hopsdev"
+CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
+AGENTS_LINK="$CODEX_DIR/AGENTS.md"
 LANG_FILE="$INSTALL_DIR/.lang"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -177,6 +179,18 @@ wire_hook() {
   fi
 }
 
+# Mirror the active identity to Codex's global AGENTS.md so AGENTS.md-aware
+# harnesses (Codex, etc.) load the same rules natively, no `lc codex` wrapper.
+# Follows the CLAUDE.md symlink so it stays in sync on install/update/switch.
+sync_agents_md() {
+  local src; src=$(readlink "$CLAUDE_DIR/CLAUDE.md" 2>/dev/null || true)
+  [ -n "$src" ] && [ -e "$src" ] || return 0
+  mkdir -p "$CODEX_DIR"
+  # Never clobber a hand-written AGENTS.md; back it up first.
+  [ -e "$AGENTS_LINK" ] && [ ! -L "$AGENTS_LINK" ] && cp "$AGENTS_LINK" "$AGENTS_LINK.bak.$(date +%s)"
+  ln -sfn "$src" "$AGENTS_LINK"
+}
+
 deploy() {
   mkdir -p "$CLAUDE_DIR/skills" "$BIN_DIR"
 
@@ -198,6 +212,7 @@ deploy() {
     ln -sfn "$INSTALL_DIR/identities/$default_identity.md" "$target"
     echo "identity: $default_identity (linked)"
   fi
+  sync_agents_md && echo "codex: $AGENTS_LINK → $(readlink "$AGENTS_LINK")"
 
   for link in "$CLAUDE_DIR/skills/"*; do
     [ -L "$link" ] || continue
@@ -448,6 +463,7 @@ cmd_identity() {
   local src="$INSTALL_DIR/identities/$1.md"
   [ -f "$src" ] || die "identity '$1' not found in $INSTALL_DIR/identities/"
   ln -sfn "$src" "$target"
+  sync_agents_md
   echo "switched to: $1"
 }
 
@@ -981,6 +997,11 @@ cmd_doctor() {
     echo "ok    CLAUDE.md → $(readlink "$CLAUDE_DIR/CLAUDE.md")"
   else
     echo "fail  CLAUDE.md not linked"; ok=0
+  fi
+  if [ -L "$AGENTS_LINK" ] && [ -e "$AGENTS_LINK" ]; then
+    echo "ok    AGENTS.md → $(readlink "$AGENTS_LINK")"
+  else
+    echo "warn  codex AGENTS.md not linked (run 'lc update')"
   fi
   for skill in "$INSTALL_DIR"/skills/*/; do
     [ -d "$skill" ] || continue
