@@ -35,7 +35,9 @@ claude --plugin-dir /path/to/lex-claude
 
 ## Codex bridge
 
-Codex does not expose the same `SessionStart` hook surface as Claude Code, so `lc codex` acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
+Install/update/identity-switch also symlinks the active identity to Codex's global instructions file, `~/.codex/AGENTS.md` (the Linux Foundation `AGENTS.md` standard, read natively by Codex on startup). So Codex picks up the same rules with no wrapper. A hand-written `~/.codex/AGENTS.md` is backed up, not clobbered. `lc doctor` reports the link. This covers Codex globally; Cursor/Amp and friends read `AGENTS.md` at project root, which is per-repo and out of scope for the global installer.
+
+For richer, project-aware context (docs bundle, `lc` reference), `lc codex` still acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
 
 Modes:
 
