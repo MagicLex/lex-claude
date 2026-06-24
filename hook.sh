@@ -9,10 +9,11 @@
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 
-if [ -f "$HOME/.claude/CLAUDE.md" ]; then
-  printf '\n===== ~/.claude/CLAUDE.md (global) =====\n'
-  cat "$HOME/.claude/CLAUDE.md"
-fi
+# Global ~/.claude/CLAUDE.md is auto-loaded into context by Claude Code itself
+# (the `claudeMd` system-reminder). Re-dumping it here only inflated the hook
+# output past the truncation limit, which cut off the acknowledgement
+# instruction at the bottom. Skip it; just name it so the ack can reference it.
+printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
 
 project_files="CLAUDE.md"
 if [ "$LEX_CLAUDE_CONTEXT_MODE" != "lite" ]; then
