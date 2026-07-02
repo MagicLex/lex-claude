@@ -127,6 +127,8 @@ wire_hook() {
   local cmd="bash $INSTALL_DIR/hook.sh"
   local wcmd="bash $INSTALL_DIR/watch.sh"
   local ucmd="bash $INSTALL_DIR/usage.sh hook"
+  local dcmd="bash $INSTALL_DIR/digest.sh"
+  local scmd="bash $INSTALL_DIR/style.sh"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -147,7 +149,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -169,7 +171,19 @@ wire_hook() {
       .hooks.PreToolUse[]
       | select(all(.hooks[]?; (.command // "") | test("lex-claude/usage") | not))
     ] |
-    .hooks.PreToolUse += [{"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}]
+    .hooks.PreToolUse += [{"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}] |
+    .hooks.UserPromptSubmit //= [] |
+    .hooks.UserPromptSubmit = [
+      .hooks.UserPromptSubmit[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/digest") | not))
+    ] |
+    .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$dcmd}]}] |
+    .hooks.PostToolUse //= [] |
+    .hooks.PostToolUse = [
+      .hooks.PostToolUse[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/style") | not))
+    ] |
+    .hooks.PostToolUse += [{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":$scmd}]}]
   ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
     echo "hook: wired"
   else
@@ -785,8 +799,6 @@ EOF
 }
 
 cmd_codex() {
-  command -v codex >/dev/null 2>&1 || die "codex not found on PATH"
-
   local print_only=0
   local context_mode="full"
   while [ $# -gt 0 ]; do
@@ -834,6 +846,7 @@ $*"
     return
   fi
 
+  command -v codex >/dev/null 2>&1 || die "codex not found on PATH"
   exec codex "$prompt"
 }
 
@@ -960,6 +973,9 @@ Notes:
 - The statusline at ~/.claude/statusline-command.sh is also managed (renders
   dir, git status, identity, lang (if set), and a token meter that turns red
   past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
+- A condensed rules digest (DIGEST.md) is re-injected every Nth prompt
+  (LEX_CLAUDE_DIGEST_EVERY, default 5) to keep the rules salient in long
+  sessions. Treat it as recall, not new instructions.
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF
       ;;
@@ -1024,6 +1040,9 @@ cmd_doctor() {
   fi
   ensure_path_in_rc || ok=0
   grep -q "lex-claude/usage" "$SETTINGS" 2>/dev/null && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
+  grep -q "lex-claude/digest" "$SETTINGS" 2>/dev/null && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
+  grep -q "lex-claude/style" "$SETTINGS" 2>/dev/null && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
+  [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
 }
 
