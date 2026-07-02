@@ -44,7 +44,8 @@ auto_update() {
   echo "lex-claude: newer version on origin. updating..."
   reset_managed_tree
   git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict). run 'lc update' manually" >&2; return 0; }
-  deploy >/dev/null
+  # Deploy via the freshly pulled binary, not the stale in-memory functions.
+  "$INSTALL_DIR/bin/lex-claude" __deploy >/dev/null
   echo "lex-claude: updated, re-running."
   exec "$INSTALL_DIR/bin/lex-claude" "$@"
 }
@@ -346,8 +347,9 @@ cmd_update() {
   [ -d "$INSTALL_DIR/.git" ] || die "not installed. run: lex-claude install"
   reset_managed_tree
   git -C "$INSTALL_DIR" pull --ff-only
-  deploy
-  echo "updated."
+  # Re-exec the freshly pulled binary for the deploy. Calling the in-memory
+  # deploy would run the pre-pull functions (stale wire_hook, etc).
+  exec "$INSTALL_DIR/bin/lex-claude" __deploy
 }
 
 sync_rules() {
@@ -1054,7 +1056,7 @@ cmd_usage() {
 }
 
 case "${1:-}" in
-  install|update|identity|rules|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1064,6 +1066,7 @@ case "${1:-}" in
   -v|--version)            usage_cmd=version ;;
   -h|-help|--help|help|"") usage_cmd="" ;;
   init)                    usage_cmd="" ;;   # plumbing: auto-fired by shell completion + SessionStart, never debloatable
+  __deploy)                usage_cmd="" ;;   # plumbing: post-pull re-exec from update/auto_update
   *)                       usage_cmd="${1:-}" ;;
 esac
 if [ -n "$usage_cmd" ]; then
@@ -1074,6 +1077,7 @@ fi
 case "${1:-}" in
   install)      shift; cmd_install "$@" ;;
   update)       shift; cmd_update "$@" ;;
+  __deploy)     shift; deploy; echo "updated." ;;
   identity)     shift; cmd_identity "$@" ;;
   rules)        shift; cmd_rules "$@" ;;
   lang)         shift; cmd_lang "$@" ;;
