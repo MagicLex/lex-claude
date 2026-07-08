@@ -13,7 +13,8 @@ BIN_HOPS="$BIN_DIR/hopsdev"
 CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
 AGENTS_LINK="$CODEX_DIR/AGENTS.md"
 LANG_FILE="$INSTALL_DIR/.lang"
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 die() { echo "error: $*" >&2; exit 1; }
 
