@@ -1,9 +1,9 @@
 ---
 name: lc-docs-init
-description: Scaffold the lex-claude doc layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) in $CLAUDE_PROJECT_DIR/docs/. Creates only missing files with minimal headers, never overwrites. Use when bootstrapping documentation in a new or undocumented project, or when the user says "scaffold our docs", "set up the docs structure", "we need docs in this project", or "give me a docs skeleton".
+description: Scaffold the lex-claude doc layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) in $PWD/docs/. Creates only missing files with minimal headers, never overwrites. Use when bootstrapping documentation in a new or undocumented project, or when the user says "scaffold our docs", "set up the docs structure", "we need docs in this project", or "give me a docs skeleton".
 ---
 
-Create the standard doc layout in `$CLAUDE_PROJECT_DIR/docs/`. **Never overwrite** — only create files that are missing. Do not fill content beyond the header — that's the user's job, this skill only scaffolds.
+Create the standard doc layout in `$PWD/docs/`. **Never overwrite** — only create files that are missing. Do not fill content beyond the header — that's the user's job, this skill only scaffolds.
 
 If `docs/` does not exist, create it. If `CLAUDE.md` is missing at project root, do **not** create one — that's a project-defining decision the user must drive.
 

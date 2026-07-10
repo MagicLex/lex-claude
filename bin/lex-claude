@@ -12,6 +12,7 @@ BIN_ALIAS="$BIN_DIR/lc"
 BIN_HOPS="$BIN_DIR/hopsdev"
 CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
 AGENTS_LINK="$CODEX_DIR/AGENTS.md"
+CODEX_SKILLS_DIR="$CODEX_DIR/skills"
 LANG_FILE="$INSTALL_DIR/.lang"
 # ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
@@ -53,10 +54,10 @@ auto_update() {
 
 usage() {
   cat <<EOF
-lex-claude. global Claude Code config manager
+lex-claude. global Claude Code and Codex config manager
 
 Usage:
-  lex-claude install [--yes]    Bootstrap: clone, symlink CLAUDE.md, wire hook, deploy skills. Prompts before overwriting existing files; --yes / LEX_CLAUDE_YES=1 skips the prompt.
+  lex-claude install [--yes]    Bootstrap: clone, symlink CLAUDE.md and AGENTS.md, wire Claude hooks, deploy skills for Claude Code and Codex. Prompts before overwriting existing files; --yes / LEX_CLAUDE_YES=1 skips the prompt.
   lex-claude install --hops-only    Install only the hopsdev binary + PATH. Touches no identity/rules/skills/hook.
   lex-claude update             Pull latest and re-deploy.
   lex-claude identity                                List identities (active marked *).
@@ -68,7 +69,7 @@ Usage:
   lex-claude lang                                    Print active language (en/fr/off).
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
-  lex-claude skip on|off|status                      Toggle a shell alias so 'claude' defaults to --dangerously-skip-permissions.
+  lex-claude skip on|off|status                      Toggle shell aliases so Claude and Codex bypass approvals and sandboxing.
   lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Idempotent, safe in hooks/rc.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
@@ -207,6 +208,36 @@ sync_agents_md() {
   ln -sfn "$src" "$AGENTS_LINK"
 }
 
+sync_skills() {
+  local skills_dir="$1" runtime="$2"
+  mkdir -p "$skills_dir"
+
+  for link in "$skills_dir/"*; do
+    [ -L "$link" ] || continue
+    local target; target=$(readlink "$link")
+    [[ "$target" == "$INSTALL_DIR/skills/"* ]] || continue
+    [ -e "$target" ] && continue
+    rm "$link"
+    echo "$runtime skill: removed stale $(basename "$link")"
+  done
+
+  for skill in "$INSTALL_DIR"/skills/*/; do
+    [ -d "$skill" ] || continue
+    local name; name=$(basename "$skill")
+    local destination="$skills_dir/$name"
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+      if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$skill" ]; then
+        echo "$runtime skill: $name (kept)"
+        continue
+      fi
+      echo "warn: $runtime skill $name already exists at $destination; left untouched"
+      continue
+    fi
+    ln -s "$skill" "$destination"
+    echo "$runtime skill: $name"
+  done
+}
+
 deploy() {
   mkdir -p "$CLAUDE_DIR/skills" "$BIN_DIR"
 
@@ -229,22 +260,8 @@ deploy() {
     echo "identity: $default_identity (linked)"
   fi
   sync_agents_md && echo "codex: $AGENTS_LINK → $(readlink "$AGENTS_LINK")"
-
-  for link in "$CLAUDE_DIR/skills/"*; do
-    [ -L "$link" ] || continue
-    local target; target=$(readlink "$link")
-    [[ "$target" == "$INSTALL_DIR/skills/"* ]] || continue
-    [ -e "$target" ] && continue
-    rm "$link"
-    echo "skill: removed stale $(basename "$link")"
-  done
-
-  for skill in "$INSTALL_DIR"/skills/*/; do
-    [ -d "$skill" ] || continue
-    local name; name=$(basename "$skill")
-    ln -sfn "$skill" "$CLAUDE_DIR/skills/$name"
-    echo "skill: $name"
-  done
+  sync_skills "$CLAUDE_DIR/skills" "claude"
+  sync_skills "$CODEX_SKILLS_DIR" "codex"
 
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_LINK"
   ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
@@ -505,6 +522,8 @@ ensure_path_in_rc() {
 
 SKIP_BEGIN='# >>> lex-claude skip >>>'
 SKIP_END='# <<< lex-claude skip <<<'
+SKIP_CLAUDE_ALIAS="alias claude='claude --dangerously-skip-permissions'"
+SKIP_CODEX_ALIAS="alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
 
 rc_file() {
   case "$(basename "${SHELL:-}")" in
@@ -516,15 +535,19 @@ rc_file() {
 
 cmd_skip() {
   local rc
-  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'"
+  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'; alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
   case "${1:-status}" in
     on)
-      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
-        echo "skip: already on ($rc)"
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc" && grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
+        echo "skip: already on for Claude and Codex ($rc)"
       else
-        printf '\n%s\nalias claude='\''claude --dangerously-skip-permissions'\''\n%s\n' \
-          "$SKIP_BEGIN" "$SKIP_END" >> "$rc"
-        echo "skip: on. claude now defaults to --dangerously-skip-permissions"
+        if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+          awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
+            '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
+        fi
+        printf '\n%s\n%s\n%s\n%s\n' \
+          "$SKIP_BEGIN" "$SKIP_CLAUDE_ALIAS" "$SKIP_CODEX_ALIAS" "$SKIP_END" >> "$rc"
+        echo "skip: on. Claude skips permissions; Codex bypasses approvals and sandboxing"
       fi
       echo "re-source: source $rc  (or open a new shell)"
       ;;
@@ -532,13 +555,21 @@ cmd_skip() {
       if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
         awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
           '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
-        echo "skip: off. re-source: source $rc (or new shell). in this shell: unalias claude"
+        echo "skip: off. re-source: source $rc (or new shell). in this shell: unalias claude codex"
       else
         echo "skip: already off"
       fi
       ;;
     status|"")
-      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then echo "skip: on ($rc)"; else echo "skip: off"; fi
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+        if grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
+          echo "skip: on for Claude and Codex ($rc)"
+        else
+          echo "skip: Claude only ($rc). run 'lc skip on' to add Codex"
+        fi
+      else
+        echo "skip: off"
+      fi
       echo "toggle: lc skip on|off"
       ;;
     *) die "unknown skip arg: $1 (expected: on, off, status)" ;;
@@ -866,7 +897,7 @@ _lc() {
     'identity:manage active identity'
     'rules:sync RULES.md across identities'
     'lang:set Claude reply language (en|fr|off)'
-    'skip:toggle claude --dangerously-skip-permissions alias'
+    'skip:toggle Claude and Codex bypass aliases'
     'github-login:wire gh + git auth (auto-detect, idempotent)'
     'awake:keep Mac awake (caffeinate wrapper)'
     'codex:launch Codex with lex-claude context preloaded'
@@ -943,7 +974,7 @@ Available subcommands (run with `lc <cmd>`):
 - `rules sync`                                re-inject RULES.md into all identities (deployed install)
 - `rules sync --repo [DIR]`                   re-inject in a dev checkout (DIR, default $PWD), then commit there
 - `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
-- `skip on|off|status`                        toggle a shell alias: claude defaults to --dangerously-skip-permissions
+- `skip on|off|status`                        toggle shell aliases for Claude and Codex permission bypass
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
@@ -1026,6 +1057,7 @@ cmd_doctor() {
     [ -d "$skill" ] || continue
     local name; name=$(basename "$skill")
     [ -L "$CLAUDE_DIR/skills/$name" ] && echo "ok    skill $name" || { echo "fail  skill $name"; ok=0; }
+    [ -L "$CODEX_SKILLS_DIR/$name" ] && echo "ok    codex skill $name" || { echo "fail  codex skill $name"; ok=0; }
   done
   grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
   if [ -L "$CLAUDE_DIR/statusline-command.sh" ] && [ -e "$CLAUDE_DIR/statusline-command.sh" ]; then

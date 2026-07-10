@@ -9,6 +9,7 @@ LEXClaude Code config: identities (with canonical shared rules), `SessionStart` 
 > - **`~/.claude/CLAUDE.md`**: if you have one, it gets backed up to `CLAUDE.md.bak.<ts>` and **replaced** by a symlink to the first identity found in `identities/` (alphabetical order). Your global instructions stop being loaded until you restore them.
 > - **`~/.claude/settings.json`**: backed up to `settings.json.bak.<ts>`, then any prior `lex-claude` `SessionStart` hook (and legacy `JeanJean` hooks from earlier versions) is stripped and replaced. Other hooks are preserved, but you're trusting `jq` + my filter logic.
 > - **`~/.claude/skills/lc*`**: any skill you happen to have named `lc`, `lc-invariants`, `lc-exploration`, `lc-review-project`, `lc-docs-init`, or `lc-docs-cleanup` will be silently overwritten by symlinks into the install dir.
+> - **`~/.codex/skills/lc*`**: a Codex skill with one of those names is left untouched and reported as a conflict. Rename or remove it, then run `lc update` to deploy the lex-claude skill.
 > - **`~/.local/bin/lex-claude` and `~/.local/bin/lc`**: created/replaced as symlinks. If you already have a binary called `lc`, it gets shadowed.
 >
 > This repo is published openly because the structure is reusable, **not** because you should run `lc install` blindly. If you want the same setup with your own persona and rules: fork it, replace the file(s) in `identities/` and edit `RULES.md` to match your conventions, then install from your fork (`LEX_CLAUDE_REPO=https://github.com/<you>/lex-claude.git lc install`).
@@ -35,7 +36,7 @@ claude --plugin-dir /path/to/lex-claude
 
 ## Codex bridge
 
-Install/update/identity-switch also symlinks the active identity to Codex's global instructions file, `~/.codex/AGENTS.md` (the Linux Foundation `AGENTS.md` standard, read natively by Codex on startup). So Codex picks up the same rules with no wrapper. A hand-written `~/.codex/AGENTS.md` is backed up, not clobbered. `lc doctor` reports the link. This covers Codex globally; Cursor/Amp and friends read `AGENTS.md` at project root, which is per-repo and out of scope for the global installer.
+Install/update/identity-switch symlinks the active identity to Codex's global instructions file, `~/.codex/AGENTS.md`, and each bundled skill to `~/.codex/skills/`. Codex therefore picks up the same rules and `lc-*` skills without the wrapper. A hand-written `~/.codex/AGENTS.md` is backed up, not clobbered; an existing conflicting skill is left untouched and reported. `lc doctor` checks both links. This covers Codex globally; Cursor/Amp and friends read `AGENTS.md` at project root, which is per-repo and out of scope for the global installer.
 
 For richer, project-aware context (docs bundle, `lc` reference), `lc codex` still acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
 
@@ -75,7 +76,7 @@ lc identity new --name <n> --desc "<persona>"      # create identity (persona + 
 lc identity new --name <n> --empty                 # create identity without shared rules
 lc rules sync                                      # re-inject RULES.md into every managed identity
 lc lang [en|fr|off]                                # set / clear Claude reply language (hook injects, statusline shows)
-lc skip on|off|status                              # toggle shell alias: claude defaults to --dangerously-skip-permissions
+lc skip on|off|status                              # toggle aliases: Claude skips permissions, Codex bypasses approvals and sandboxing
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
@@ -160,7 +161,7 @@ $CLAUDE_PROJECT_DIR/
 
 All optional. Only what exists is loaded.
 
-The active identity at `~/.claude/CLAUDE.md` (symlink → `identities/<name>.md`, rules inlined) is loaded natively by Claude Code, so `hook.sh` does not re-inject it. Codex gets the same identity natively through the `~/.codex/AGENTS.md` symlink (see Codex bridge above).
+The active identity at `~/.claude/CLAUDE.md` (symlink → `identities/<name>.md`, rules inlined) is loaded natively by Claude Code, so `hook.sh` does not re-inject it. Codex gets the same identity through the `~/.codex/AGENTS.md` symlink and the bundled skills through `~/.codex/skills/` (see Codex bridge above).
 
 ## Rules stickiness
 

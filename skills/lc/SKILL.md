@@ -6,8 +6,8 @@ description: Surface current lex-claude state. Active identity, installed skills
 Run these and report concisely:
 
 - `lc identity` — list identities, mark active.
-- `lc doctor` — install health (CLAUDE.md symlink, hook, skills, CLI on PATH).
-- `ls -1 ~/.claude/skills/` — globally installed skills.
+- `lc doctor` — install health (CLAUDE.md, AGENTS.md, hooks, skills, CLI on PATH).
+- `ls -1 ~/.claude/skills/` and `ls -1 ~/.codex/skills/` — globally installed skills.
 
 Then echo the CLI surface in one line:
 

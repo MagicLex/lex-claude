@@ -7,7 +7,7 @@ Pass the project's docs under these checks. For each finding, report `file:line`
 
 We don't keep archives. Docs reflect current state. Anything else is dead weight that confuses the next reader (human or LLM).
 
-Scope: `$CLAUDE_PROJECT_DIR/CLAUDE.md` + every `*.md` under `$CLAUDE_PROJECT_DIR/docs/`.
+Scope: `$PWD/CLAUDE.md` + every `*.md` under `$PWD/docs/`.
 
 ## Checks
 
