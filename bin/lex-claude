@@ -70,7 +70,7 @@ Usage:
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
   lex-claude skip on|off|status                      Toggle shell aliases so Claude and Codex bypass approvals and sandboxing.
-  lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Idempotent, safe in hooks/rc.
+  lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Also sets git author (user.name/email) when unset or pod default. Idempotent, safe in hooks/rc.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
   lex-claude awake off|status                        Stop or inspect the assertion.
@@ -576,15 +576,31 @@ cmd_skip() {
   esac
 }
 
+# Hopsworks pods boot preconfigured as "Admin Admin <admin@hopsworks.ai>";
+# that default is as good as unset. A real identity is never overwritten.
 github_set_identity() {
   local who="$1"
   [ -n "$who" ] && [ "$who" != "?" ] || return 0
   command -v git >/dev/null 2>&1 || return 0
-  if [ -z "$(git config --global user.email 2>/dev/null)" ]; then
-    git config --global user.email "$who@users.noreply.github.com"
-    echo "git: set user.email to $who@users.noreply.github.com (override with: git config --global user.email ...)"
+  local cur_name cur_email
+  cur_name=$(git config --global user.name 2>/dev/null || true)
+  cur_email=$(git config --global user.email 2>/dev/null || true)
+  [ "$cur_name" = "Admin Admin" ] && cur_name=""
+  [ "$cur_email" = "admin@hopsworks.ai" ] && cur_email=""
+  if [ -n "$cur_name" ] && [ -n "$cur_email" ]; then return 0; fi
+  local email="$who@users.noreply.github.com"
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    local gh_email gh_id
+    gh_email=$(gh api user --jq '.email // empty' 2>/dev/null || true)
+    gh_id=$(gh api user --jq .id 2>/dev/null || true)
+    if [ -n "$gh_email" ]; then email="$gh_email"
+    elif [ -n "$gh_id" ]; then email="$gh_id+$who@users.noreply.github.com"; fi
   fi
-  if [ -z "$(git config --global user.name 2>/dev/null)" ]; then
+  if [ -z "$cur_email" ]; then
+    git config --global user.email "$email"
+    echo "git: set user.email to $email (override with: git config --global user.email ...)"
+  fi
+  if [ -z "$cur_name" ]; then
     git config --global user.name "$who"
     echo "git: set user.name to $who"
   fi
@@ -983,7 +999,7 @@ Available subcommands (run with `lc <cmd>`):
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
-- `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent)
+- `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
 - `usage`                                     report which commands + skills get used (never-used = debloat candidates)
 - `doctor`                                    sanity-check the install
 - `update`                                    pull latest + redeploy
