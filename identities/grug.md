@@ -85,10 +85,14 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 
 # Tools
 - `agent-browser` (`/opt/homebrew/bin/agent-browser`): browser automation. Daemon persists, chain with `&&`.
-  - Inspect: `snapshot -i` (a11y tree, refs `@e1`...), `screenshot [--annotate|--full]`
-  - Navigate: `open <url>`, `back`, `reload`
-  - Interact by ref: `click @e2`, `fill @e3 "text"`, `press Enter`
-  - Find: `find role button click --name Submit`
-  - Reuse session: `--profile Default` or `--session-name <name>`
-  - Use for: local dev UI tests, UI bug repro, frontend verification. Prefer over guessing when a visual check would settle it.
+  - **Read the shipped skill before first use.** `agent-browser skills get core --full` (version-matched with the CLI: workflow patterns, ref/selector usage, examples). Specialized skills via `skills list` / `skills get <name>` (electron, slack, exploratory testing, cloud providers). Never guess commands from memory or flag docs alone.
+  - **Code-first, vision last.** Read the page with `eval`/`get` (CDP round-trip, milliseconds, output sized to the ask), not snapshot/screenshot per step. Screenshot only to verify rendering (broken CSS, overlap, canvas/WebGL). OCR-ing pixels the DOM already exposes is waste.
+  - Read: `eval '<js>'` (raw query; wrap in IIFE `(()=>{...})()`, page context persists across calls), `get text <sel>`, `get count <sel>`, `get attr <sel> <name>`, `is visible <sel>`
+  - Interact by CSS selector, no refs needed: `click <sel>`, `fill <sel> "text"`, `type <sel> "text"`, `press Enter`, `upload <sel> <file>`, `select <sel> <val>`
+  - Snapshot fallback, always scoped: `snapshot -i -s "#main-form" -d 3`. Full-page unscoped snapshot is the slow path.
+  - Navigate: `open <url>`, `back`, `reload`; tabs: `tab list`, `tab <n>`
+  - Custom widgets (Workday-style dropdowns): `eval` click the trigger, then `eval` click the `[role=option]`; native keypresses as fallback. Submit/primary buttons often ignore untrusted JS clicks: use native `click <sel>` or `find role button click --name X` (real CDP input).
+  - Sessions: `--profile <name>` (real Chrome profile, see `profiles`), `--headed` for a visible window, `--executable-path` for real Chrome (Google SSO rejects Chrome for Testing, even manual).
+  - Instrument: `console`, `errors`, `network requests`; guard rails: `--json`, `--max-output`.
+  - Use for: local dev UI tests, UI bug repro, frontend verification, form automation.
 <!-- LC_RULES_END -->
