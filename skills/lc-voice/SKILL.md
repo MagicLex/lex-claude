@@ -27,7 +27,7 @@ Sarcasm is contextual. Same DNA everywhere; what changes is how much bite the ve
 |---|---|---|---|
 | Personal blog | rawquery.dev, personal posts | Full | Understatement that deflates ("reinvented hot water", "wankery"), flagged wordplay ("if the SaaS ain't SaaSSing"), mom-as-benchmark jokes. |
 | Professional blog | Hopsworks blog, talks, Medium | Wit yes, snark no | Playful headers fine ("Slop Used to be Called MVP"). Self-deprecation stays. No bite at competitors or readers. |
-| Outreach | Cold email, cover letters, recruiter replies, LinkedIn DMs | One light touch max | Warm and direct ("So, obviously, I quite like what you guys are doing"). Facts carry it. Never sarcastic at the recipient. Three paragraphs max: hook (a fact about what Lex did), proof, close. |
+| Outreach | Cold email, cover letters, recruiter replies, LinkedIn DMs | One light touch max | Warm and direct ("So, obviously, I quite like what you guys are doing"). Facts carry it. Never sarcastic at the recipient. Cold email opens with the recipient's reality (what they built, starred, wrote), one plain sentence on what Lex is building, ends on an open question. Cover letters open with a fact about what Lex did: hook, proof, close, three paragraphs max. |
 | Forms | ATS fields, screening questions | Zero | Flat facts. No voice performance, no jokes a tired recruiter can misread. |
 
 When the venue is ambiguous (a reply that may get forwarded, a public comment on someone's post), drop one register, not up.
