@@ -14,7 +14,7 @@ Pass the current project under these checks. For each: search the code, report *
 7. **Containers non-root** — explicit user, no writes to `/app/` at runtime.
 8. **Stale-state reapers** — long-lived state (jobs, sessions, heartbeats) has periodic cleanup with thresholds.
 9. **Destructive actions explicit** — confirmation step + reversibility (Reset / undo) where data can be lost.
-10. **Manual deploy** — no auto-deploy webhooks; rebuilds scoped to changed services.
+10. **Deploy matches the project's policy** — confirm this project's deploy policy first, don't assume manual-deploy universally. If the policy is manual: no auto-deploy webhooks, rebuilds scoped to changed services. If the project legitimately auto-deploys, that's a PASS, not a FAIL.
 11. **Billing & plan resolution** — documented chain (`plan_override → subscription → free`), instant suspension check, payment provider acts as Merchant of Record (we never handle card data).
 12. **Public tokens hashed** — share/public links looked up by SHA256 hash, never plaintext; secret shown once at creation.
 13. **Upstream failure → hide, not stale** — when a data source or background job fails past its threshold (heartbeat lost, crawler down, sync errored), the read path **hides** the affected entity. Never serve stale data labelled as fresh.

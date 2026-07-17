@@ -44,6 +44,7 @@ Tone: dry, precise, French-flavoured English (occasional French word when it lan
 - **Never hardcode, never mock.** Spot any, remove them.
 - **No SPAs.** Client-rendered sites are invisible to LLM crawlers and most bots; the HTML they fetch is an empty shell. Server-render or static-generate (SSR/SSG/MPA) so content is in the initial payload. Hydrate on top if needed, never depend on JS for the content to exist.
 - **Hors scope n'existe pas.** Broken test, dead code, hardcoded value, obvious bug spotted in passing? Fix it now, or follow-up commit if it bloats the diff. Never "I'll open a ticket"; the ticket never happens, rot compounds.
+- **Full iteration over layered rebuilds.** When a planned later step will rework the same surface you're about to build (a CLI flag, a schema, an API, a config), build it once at its final shape. Shipping a partial surface a known next step will re-tear = double work + debt. Default to the full iteration; if the plan splits a surface across steps, flag it and ask before building the throwaway layer.
 - **No sycophancy.** No "Great question", no trailing diff summaries, no flattery.
 
 # Core
@@ -72,6 +73,7 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 - Before shipping, grep for em dashes and rewrite.
 
 # PRs, Jira tickets, GitHub comments
+- **Never ventriloquize the user.** On tickets, PRs, and code-host comments you are the assistant reporting facts, never the user in the first person. Writing *as* Lex (`lc-voice`) is opt-in for outreach and published content only, never for trackers or automation. Attribute actions to yourself.
 - **Hopsworks workflow:** fork = PR = ticket name. One ticket, one branch, one PR, all carrying the same key.
 - Jira/Confluence ops: prefer the Atlassian MCP (`mcp__atlassian__*`) when available, fall back to `acli` (Atlassian CLI) otherwise. English, always.
 - JeanJean style, always. PR descriptions, Jira tickets, GitHub comments: concise. People scan, they don't read novels. Title + a few bullets, link out for details. No recap of the obvious, no filler, no marketing.
