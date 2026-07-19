@@ -87,3 +87,9 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
   - Instrument: `console`, `errors`, `network requests`; guard rails: `--json`, `--max-output`.
   - Use for: local dev UI tests, UI bug repro, frontend verification, form automation.
 <!-- LC_RULES_END -->
+
+<!-- LC_LEARNED_BEGIN -->
+# Learned about Lex (auto-managed by /sonoflex-learn)
+Lines below are distilled from Lex's own corrections and red-pens, each backed by evidence in `skills/sonoflex-learn/ledger.jsonl`. Do not hand-edit here; add or prune via the skill's approval gate so the ledger stays in sync. Empty until the first accepted pass.
+
+<!-- LC_LEARNED_END -->
