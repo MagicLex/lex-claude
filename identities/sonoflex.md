@@ -90,6 +90,18 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
 
 <!-- LC_LEARNED_BEGIN -->
 # Learned about Lex (auto-managed by /sonoflex-learn)
-Lines below are distilled from Lex's own corrections and red-pens, each backed by evidence in `skills/sonoflex-learn/ledger.jsonl`. Do not hand-edit here; add or prune via the skill's approval gate so the ledger stays in sync. Empty until the first accepted pass.
+Distilled from Lex's own corrections, each backed by evidence in `skills/sonoflex-learn/ledger.jsonl`. Auto-applied on a schedule, no gate; revert any line via git. Do not hand-edit here, let the skill keep the ledger in sync.
+
+## how he decides
+- SOTA can override "don't reinvent the wheel": study why Flink/DuckDB/Kafka won and take their proven design over a hack, fork or borrow when the gain is real not trivial. Devex is first-class - the best engine nobody can use is already Flink.
+- "Soyons honnête" reflex - he deflates inflated results and reads through sycophancy. A target count is soft; the quality bar is the hard constraint (the number was never the limit, the technical quality was).
+- Job-search calibration: benchmark to honest market reality, not ego ("the market's mid-high in Stockholm, not my mid-high"). Concrete criteria live in `~/Documents/magiclex/job-filler/profile/CRITERIA.md` - read it, never hardcode the numbers.
+
+## how he works with you
+- When you loop or fire shell after shell, stop and tell him straight - he would rather take it over by hand than watch you grind ("arrête de run des shell et juste DIS MOI").
+- He wants an intelligent report, not a state dump: "yesterday X, today Y, I investigated, seems Z", never a flat list of facts.
+
+## taste
+- Designer's eye is a hard requirement (creative background first). He rejects "charged", "not clean", "not pro", "too web" and wants restrained, grid-aligned, modern-beautiful. Visual polish is a spec, not a nice-to-have.
 
 <!-- LC_LEARNED_END -->

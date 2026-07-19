@@ -1,48 +1,48 @@
 ---
 name: sonoflex-learn
-description: Teach the sonoflex identity to be more like Lex, from evidence. Scans recent Claude Code transcripts for moments where Lex corrected or redirected the agent, distills the recurring ones into candidate persona/voice/rule deltas, and applies only what Lex approves to the identity's LC_LEARNED block. Use when the user says "learn from our sessions", "update sonoflex", "what did you learn about me", or on a periodic cadence. Never writes without the approval gate.
+description: Teach the sonoflex identity to be more like Lex, from evidence, autonomously. Scans recent Claude Code transcripts for moments where Lex corrected or redirected the agent, distills the recurring ones into persona/voice deltas, and applies the high-confidence ones directly to the identity's LC_LEARNED block, committed with an audit trail. Runs unattended on a schedule; also invokable by hand ("learn from our sessions", "update sonoflex", "what did you learn about me"). No human gate by design; git is the safety net.
 ---
 
-sonoflex's feedback loop. The identity file is static text; this closes the loop by mining the one honest signal that already exists on disk (where Lex pushed back) and turning the *recurring* patterns into durable deltas Lex signs off on.
+sonoflex's feedback loop. The identity file is static text; this closes the loop by mining the one honest signal that already exists on disk (where Lex pushed back) and turning the *recurring* patterns into durable deltas.
 
-Ground truth is Lex. This skill proposes; Lex disposes. It never writes to the identity without an explicit approval, and it never invents a preference from a single instance.
+Lex chose autonomy over a per-lesson gate: he wants to feel the drift over time, not approve each line. So this applies directly. The safety net is not a human gate, it is: a high recurrence bar, a hard cap per pass, auto-pruning, and full git revertability with evidence in the ledger. Everything you write here, Lex can `git log` and revert in one command.
 
 ## Paths
 
 - Identity block: `~/.claude/lex-claude/identities/sonoflex.md`, between `<!-- LC_LEARNED_BEGIN -->` and `<!-- LC_LEARNED_END -->`. Only ever touch content between those markers.
-- Ledger: `~/.claude/lex-claude/skills/sonoflex-learn/ledger.jsonl` (git-tracked, one JSON line per accepted lesson, the audit trail).
-- Cursor: `~/.claude/lex-claude/skills/sonoflex-learn/.last-learn` (gitignored, holds the epoch of the last accepted pass).
+- Ledger: `~/.claude/lex-claude/skills/sonoflex-learn/ledger.jsonl` (git-tracked audit trail, one JSON line per lesson).
+- Changelog: `~/.claude/lex-claude/skills/sonoflex-learn/LEARNINGS.md` (human-readable, one dated section per pass, so Lex feels it).
+- Cursor: `~/.claude/lex-claude/skills/sonoflex-learn/.last-learn` (gitignored, epoch of last pass).
 - Scanner: `~/.claude/lex-claude/skills/sonoflex-learn/scan.py`.
 
-## Procedure
+## Procedure (same path whether run by hand or by the launchd runner)
 
-1. **Scan.** Read the cursor if present (`cat .last-learn`), else default to 21 days ago. Run:
+1. **Scan.** Read the cursor (`cat .last-learn`), else default to 21 days ago. Run:
    `python3 <skilldir>/scan.py --since <epoch> > <scratch>/sf-cand.jsonl`
-   The scanner casts a wide net (recall over precision): it flags user turns that look like a correction/redirect. Expect noise; you are the precision filter.
+   Wide net, recall over precision. You are the precision filter.
 
-2. **Judge.** Read every candidate. For each, decide: is this Lex teaching something durable about *who he is, how he decides, or how he writes* — or is it a one-off task instruction / a question / noise? Keep only durable, generalisable lessons. Classify each keeper:
-   - `persona` — how he thinks or decides (a standard, a taste, a recurring priority).
-   - `rule` — a hard do/don't he corrected me on (tightens or overrides a rule for him specifically).
-   - `voice` — how he writes or wants to be represented (feeds the register, not lc-voice's corpus which stays ground truth).
-   - `kill` — a direction he explicitly abandoned, worth remembering so I don't re-propose it.
+2. **Judge.** Read every candidate. Keep only what teaches something durable about *who Lex is, how he decides, or how he writes* - drop one-off task instructions, questions, and noise. Classify each keeper: `persona` (how he thinks/decides/works), `voice` (how he writes or wants to be represented), `kill` (a direction he abandoned, so I don't re-propose it). A raw quote is not a lesson: distill it to one concrete sentence in Lex's terms.
 
-3. **Dedup + promote.** Load the ledger. For each keeper, check if it matches an existing lesson.
-   - Already present: bump its `recurrence` and refresh evidence; do not add a duplicate line.
-   - New: hold it as a candidate. **One instance is not a rule.** Only promote a *new* lesson to the identity block if it recurs (seen ≥2 distinct sessions) OR it is a boundary violation (I impersonated him, I fired an irreversible action unasked, I ignored an explicit "no") — those promote on first sight. Everything else stays in the ledger as `recurrence: 1, promoted: false` and waits for a second hit.
+3. **Dedup + promote (strict bar, because there is no human check).** Load the ledger. For each keeper:
+   - Matches an existing ledger lesson: bump its `recurrence`, add the new session to `sessions`, refresh evidence. If it was `promoted:false` and now has ≥2 distinct sessions, promote it (add its line to the block).
+   - New: write it to the ledger as `recurrence:1, promoted:false`. **Do not put it in the identity block yet.** One instance is never a rule.
+   - Promote to the block only when: ≥2 distinct sessions, OR it is a boundary violation (I impersonated Lex, fired an irreversible action unasked, or ignored an explicit "no") - those promote on first sight.
+   - Already covered by the curated persona (above `LC_RULES_BEGIN`) or by RULES: do not duplicate. Note it as "confirmed" in the changelog and move on.
 
-4. **Present the gate.** Show Lex a tight grouped diff, JeanJean-style: the lines proposed for the block (grouped by type), each with its one-line evidence quote and session; separately, the ledger-only lines (seen once, waiting). No novel. Then STOP and ask him to approve / edit / reject, line by line if he wants. Do not write anything yet.
-
-5. **Apply (only what he approved).**
-   - Append approved lines to the identity's LC_LEARNED block, grouped under `## how he decides` / `## hard rules for Lex` / `## voice` / `## dead ends`. Keep each line one sentence, concrete, no bloat.
-   - Append or update the corresponding ledger entries: `{date, type, lesson, evidence, session, recurrence, promoted}`. Dates absolute (YYYY-MM-DD), never relative.
+4. **Apply.**
+   - Add promoted lines to the LC_LEARNED block, grouped under `## how he decides`, `## how he works with you`, `## taste`, `## voice`, `## dead ends`. One concrete sentence each, no bloat.
+   - **Caps.** At most 3 newly-promoted lines per pass (the rest wait in the ledger for the next pass). If the block would exceed ~22 lines, prune first (step 5).
+   - Update the ledger and `LEARNINGS.md` (dated section: promoted / bumped / confirmed / pruned, each with its one-line evidence quote).
    - Write the current epoch to `.last-learn`.
-   - Commit in the lex-claude repo: `identities: sonoflex learned N lessons (<date>)` plus the Co-Authored-By trailer. Do not push unless Lex asks.
+   - Commit in the lex-claude repo: `identities: sonoflex learned +N/-M (<YYYY-MM-DD>)` with the Co-Authored-By trailer. Never push (Lex pushes when he wants).
+   - If new lines were promoted and `osascript` exists, fire one macOS notification so Lex feels it: `display notification "<N> new: <first lesson>" with title "sonoflex learned"`. Best-effort; never fail the pass on it.
 
-6. **Prune (every few passes, or when he asks).** Re-read the LC_LEARNED block against the curated persona (above LC_RULES_BEGIN) and the shared RULES. Propose removing lines that are now redundant with the core, contradicted by a newer lesson, or stale. Same gate: propose, he approves, then delete from block + mark the ledger entry `retired: <date>`. Remove more than you add. A learned block that only grows is a bloat block.
+5. **Prune (each pass, keep the block honest).** Re-read the block against the curated persona and RULES. Drop lines now redundant with the core, contradicted by a newer lesson, or stale. Mark the ledger entry `retired:<date>`. Remove more than you add over time; a block that only grows is a bloat block.
 
 ## Guardrails
 
-- **Learn his corrections, not my self-flagellation.** The signal must be Lex redirecting me, not a line where I narrated my own mistake. If the evidence is my "I should have...", drop it.
-- **No volatile state in the block.** Same rule as memory: no live branch names, no "currently on X", no relative dates. Only stable, structural facts about Lex. Point at a source of truth instead of copying a value.
-- **The block is persona, not a second rulebook.** If a lesson is really a universal code-club rule (applies to every identity, not just Lex-as-a-person), it belongs in RULES.md via a normal edit, not here. Flag it as such at the gate.
-- **Honesty ceiling.** This converges sonoflex toward Lex's stated corrections and written voice. It does not read his mind. Never claim the block makes sonoflex "him"; it makes it less wrong about him.
+- **Learn his corrections, not my self-flagellation.** The signal must be Lex redirecting me, never a line where I narrated my own mistake.
+- **No volatile state.** No live branch names, no "currently on X", no relative dates, no values that will be stale next month. Point at a source of truth (a file, git) instead of copying it - e.g. job criteria live in `CRITERIA.md`, reference it, don't inline the numbers.
+- **The block is persona, not a second rulebook.** A universal code-club rule (applies to every identity) belongs in RULES.md, not here. Note such a case in the changelog for Lex to move by hand.
+- **Honesty ceiling.** This converges sonoflex toward Lex's stated corrections and written voice. It does not read his mind. It makes sonoflex less wrong about Lex, not "him".
+- **Autonomy limits.** Never push. Never touch anything outside the LC_LEARNED markers. Never run when another sonoflex-learn pass holds the lock (the runner flocks).
