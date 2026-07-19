@@ -14,6 +14,7 @@ Lex chose autonomy over a per-lesson gate: he wants to feel the drift over time,
 - Changelog: `~/.claude/lex-claude/skills/sonoflex-learn/LEARNINGS.md` (human-readable, one dated section per pass, so Lex feels it).
 - Cursor: `~/.claude/lex-claude/skills/sonoflex-learn/.last-learn` (gitignored, epoch of last pass).
 - Scanner: `~/.claude/lex-claude/skills/sonoflex-learn/scan.py`.
+- Runner: `runner/run.sh` (canonical, repo-tracked) + `runner/install.sh` (opt-in launchd install, `--off` to remove). Weekly, Sunday 10:00. Not wired into `lc install` on purpose (headless pass costs tokens; Lex-specific).
 
 ## Procedure (same path whether run by hand or by the launchd runner)
 
