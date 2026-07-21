@@ -1,0 +1,1143 @@
+#!/usr/bin/env bash
+# lex-claude. manage global Claude Code config (identity, hook, skills).
+set -euo pipefail
+
+REPO_URL="${LEX_CLAUDE_REPO:-https://github.com/MagicLex/lex-claude.git}"
+INSTALL_DIR="$HOME/.claude/lex-claude"
+CLAUDE_DIR="$HOME/.claude"
+SETTINGS="$CLAUDE_DIR/settings.json"
+BIN_DIR="$HOME/.local/bin"
+BIN_LINK="$BIN_DIR/lex-claude"
+BIN_ALIAS="$BIN_DIR/lc"
+BIN_HOPS="$BIN_DIR/hopsdev"
+CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
+AGENTS_LINK="$CODEX_DIR/AGENTS.md"
+CODEX_SKILLS_DIR="$CODEX_DIR/skills"
+LANG_FILE="$INSTALL_DIR/.lang"
+# ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+reset_managed_tree() {
+  # Install dir is a deployed artifact, not a workspace. sync_rules and deploy
+  # rewrite tracked files; any drift would block git pull. Hard-reset wipes
+  # both staged and worktree drift. Untracked files (.last-update-check, etc)
+  # are left alone.
+  [ -d "$INSTALL_DIR/.git" ] || return 0
+  git -C "$INSTALL_DIR" reset --hard HEAD --quiet || true
+}
+
+auto_update() {
+  [ "${LEX_CLAUDE_NO_AUTO_UPDATE:-}" = "1" ] && return 0
+  [ -d "$INSTALL_DIR/.git" ] || return 0
+  local marker="$INSTALL_DIR/.last-update-check"
+  local now last=0 diff
+  now=$(date +%s)
+  [ -f "$marker" ] && last=$(cat "$marker" 2>/dev/null || echo 0)
+  diff=$((now - last))
+  [ "$diff" -lt 86400 ] && return 0
+  echo "$now" > "$marker"
+  git -C "$INSTALL_DIR" fetch --quiet origin 2>/dev/null || return 0
+  local local_sha remote_sha
+  local_sha=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || return 0
+  remote_sha=$(git -C "$INSTALL_DIR" rev-parse '@{u}' 2>/dev/null) || return 0
+  [ "$local_sha" = "$remote_sha" ] && return 0
+  echo "lex-claude: newer version on origin. updating..."
+  reset_managed_tree
+  git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict). run 'lc update' manually" >&2; return 0; }
+  # Deploy via the freshly pulled binary, not the stale in-memory functions.
+  "$INSTALL_DIR/bin/lex-claude" __deploy >/dev/null
+  echo "lex-claude: updated, re-running."
+  exec "$INSTALL_DIR/bin/lex-claude" "$@"
+}
+
+usage() {
+  cat <<EOF
+lex-claude. global Claude Code and Codex config manager
+
+Usage:
+  lex-claude install [--yes]    Bootstrap: clone, symlink CLAUDE.md and AGENTS.md, wire Claude hooks, deploy skills for Claude Code and Codex. Prompts before overwriting existing files; --yes / LEX_CLAUDE_YES=1 skips the prompt.
+  lex-claude install --hops-only    Install only the hopsdev binary + PATH. Touches no identity/rules/skills/hook.
+  lex-claude update             Pull latest and re-deploy.
+  lex-claude identity                                List identities (active marked *).
+  lex-claude identity <name>                         Switch active identity.
+  lex-claude identity new --name <n> --desc "<d>"    Create identity (persona + shared rules).
+  lex-claude identity new --name <n> --empty         Create identity without shared rules.
+  lex-claude rules sync                              Re-inject RULES.md into all managed identities (deployed install).
+  lex-claude rules sync --repo [DIR]                 Same, but against a dev checkout (DIR, default \$PWD). Then commit/push from there.
+  lex-claude lang                                    Print active language (en/fr/off).
+  lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
+  lex-claude lang off                                Clear (Claude picks the language).
+  lex-claude skip on|off|status                      Toggle shell aliases so Claude and Codex bypass approvals and sandboxing.
+  lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Also sets git author (user.name/email) when unset or pod default. Idempotent, safe in hooks/rc.
+  lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
+  lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
+  lex-claude awake off|status                        Stop or inspect the assertion.
+  lex-claude codex [prompt]                          Launch Codex with active identity + project docs injected as the initial prompt.
+  lex-claude codex --print [prompt]                  Print the prompt that would be sent to Codex.
+  lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
+  lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
+  lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
+  lex-claude doctor             Sanity-check the install.
+  lex-claude version            Print install version (commit count + date).
+
+Sibling binary (deployed alongside lc):
+  hopsdev <branch>              Clone a hopsworks-api branch, editable install (uv pip install -e), relink skills.
+  hopsdev <owner/repo>@<branch> Same, from a different fork.
+  hopsdev --quick <spec>        Skip clone: uv pip install --force-reinstall git+...@branch.
+  hopsdev --status              Show where 'hops' resolves now.
+  hopsdev init [dir]            Clone logicalclocks/workspaces into [dir] (default ./workspaces).
+EOF
+}
+
+cmd_version() {
+  [ -d "$INSTALL_DIR/.git" ] || die "not a git install ($INSTALL_DIR has no .git)"
+  local n date
+  n=$(git -C "$INSTALL_DIR" rev-list --count HEAD 2>/dev/null) || die "cannot read HEAD"
+  date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null) || date="?"
+  echo "lex-claude v$n ($date)"
+}
+
+wire_statusline() {
+  local cmd="bash $CLAUDE_DIR/statusline-command.sh"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "warn: jq missing. add statusLine manually to $SETTINGS (command: $cmd)"
+    return 0
+  fi
+  [ -f "$SETTINGS" ] || { echo '{}' > "$SETTINGS"; }
+
+  local current
+  current=$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null || echo "")
+  case "$current" in
+    *statusline-command.sh*) echo "statusline: wired (kept)"; return 0 ;;
+    "") ;;
+    *) echo "statusline: custom command in $SETTINGS (kept). to use lex-claude's, set: $cmd"; return 0 ;;
+  esac
+
+  local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-sl.$$"
+  if jq --arg cmd "$cmd" '.statusLine = {"type":"command","command":$cmd}' "$SETTINGS" > "$out" \
+     && mv "$out" "$SETTINGS"; then
+    echo "statusline: wired"
+  else
+    echo "warn: jq patch failed. statusLine NOT wired."
+    rm -f "$out" 2>/dev/null || true
+    return 1
+  fi
+}
+
+wire_hook() {
+  local cmd="bash $INSTALL_DIR/hook.sh"
+  local wcmd="bash $INSTALL_DIR/watch.sh"
+  local ucmd="bash $INSTALL_DIR/usage.sh hook"
+  local dcmd="bash $INSTALL_DIR/digest.sh"
+  local scmd="bash $INSTALL_DIR/style.sh"
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
+    return 0
+  fi
+  mkdir -p "$(dirname "$SETTINGS")" 2>/dev/null || true
+
+  if [ ! -f "$SETTINGS" ]; then
+    local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-settings.$$"
+    if ! { echo '{}' > "$tmp" && mv "$tmp" "$SETTINGS"; } 2>/dev/null; then
+      echo "warn: cannot write $SETTINGS (open-create blocked by fs?). hook NOT wired."
+      echo "diag: $(ls -la "$(dirname "$SETTINGS")" 2>&1 | head -3 | tr '\n' '|')"
+      rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
+  fi
+
+  local bak="$SETTINGS.bak.$(date +%s)"
+  cp "$SETTINGS" "$bak" 2>/dev/null || true
+
+  local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" '
+    .hooks //= {} |
+    .hooks.SessionStart //= [] |
+    .hooks.SessionStart = [
+      .hooks.SessionStart[]
+      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch")) | not))
+    ] |
+    .hooks.SessionStart += [
+      {"hooks":[{"type":"command","command":$cmd}]},
+      {"hooks":[{"type":"command","command":$wcmd}]}
+    ] |
+    .hooks.FileChanged //= [] |
+    .hooks.FileChanged = [
+      .hooks.FileChanged[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/watch") | not))
+    ] |
+    .hooks.FileChanged += [{"hooks":[{"type":"command","command":$wcmd}]}] |
+    .hooks.PreToolUse //= [] |
+    .hooks.PreToolUse = [
+      .hooks.PreToolUse[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/usage") | not))
+    ] |
+    .hooks.PreToolUse += [{"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}] |
+    .hooks.UserPromptSubmit //= [] |
+    .hooks.UserPromptSubmit = [
+      .hooks.UserPromptSubmit[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/digest") | not))
+    ] |
+    .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":$dcmd}]}] |
+    .hooks.PostToolUse //= [] |
+    .hooks.PostToolUse = [
+      .hooks.PostToolUse[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/style") | not))
+    ] |
+    .hooks.PostToolUse += [{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":$scmd}]}]
+  ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
+    echo "hook: wired"
+  else
+    echo "warn: jq patch failed. hook NOT wired. backup at $bak"
+    rm -f "$out" 2>/dev/null || true
+    return 1
+  fi
+}
+
+# Mirror the active identity to Codex's global AGENTS.md so AGENTS.md-aware
+# harnesses (Codex, etc.) load the same rules natively, no `lc codex` wrapper.
+# Follows the CLAUDE.md symlink so it stays in sync on install/update/switch.
+sync_agents_md() {
+  local src; src=$(readlink "$CLAUDE_DIR/CLAUDE.md" 2>/dev/null || true)
+  [ -n "$src" ] && [ -e "$src" ] || return 0
+  mkdir -p "$CODEX_DIR"
+  # Never clobber a hand-written AGENTS.md; back it up first.
+  [ -e "$AGENTS_LINK" ] && [ ! -L "$AGENTS_LINK" ] && cp "$AGENTS_LINK" "$AGENTS_LINK.bak.$(date +%s)"
+  ln -sfn "$src" "$AGENTS_LINK"
+}
+
+sync_skills() {
+  local skills_dir="$1" runtime="$2"
+  mkdir -p "$skills_dir"
+
+  for link in "$skills_dir/"*; do
+    [ -L "$link" ] || continue
+    local target; target=$(readlink "$link")
+    [[ "$target" == "$INSTALL_DIR/skills/"* ]] || continue
+    [ -e "$target" ] && continue
+    rm "$link"
+    echo "$runtime skill: removed stale $(basename "$link")"
+  done
+
+  for skill in "$INSTALL_DIR"/skills/*/; do
+    [ -d "$skill" ] || continue
+    local name; name=$(basename "$skill")
+    local destination="$skills_dir/$name"
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+      if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$skill" ]; then
+        echo "$runtime skill: $name (kept)"
+        continue
+      fi
+      echo "warn: $runtime skill $name already exists at $destination; left untouched"
+      continue
+    fi
+    ln -s "$skill" "$destination"
+    echo "$runtime skill: $name"
+  done
+}
+
+deploy() {
+  mkdir -p "$CLAUDE_DIR/skills" "$BIN_DIR"
+
+  sync_rules
+
+  local target="$CLAUDE_DIR/CLAUDE.md"
+  local cur; cur=$(readlink "$target" 2>/dev/null || true)
+  if [[ "$cur" == "$INSTALL_DIR/identities/"*.md ]] && [ -e "$cur" ]; then
+    echo "identity: $(basename "$cur" .md) (kept)"
+  else
+    local default_identity=""
+    for f in "$INSTALL_DIR"/identities/*.md; do
+      [ -e "$f" ] || continue
+      default_identity=$(basename "$f" .md)
+      break
+    done
+    [ -n "$default_identity" ] || die "no identities found in $INSTALL_DIR/identities/"
+    [ -e "$target" ] && [ ! -L "$target" ] && cp "$target" "$target.bak.$(date +%s)" && echo "backup: $target.bak.*"
+    ln -sfn "$INSTALL_DIR/identities/$default_identity.md" "$target"
+    echo "identity: $default_identity (linked)"
+  fi
+  sync_agents_md && echo "codex: $AGENTS_LINK → $(readlink "$AGENTS_LINK")"
+  sync_skills "$CLAUDE_DIR/skills" "claude"
+  sync_skills "$CODEX_SKILLS_DIR" "codex"
+
+  ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_LINK"
+  ln -sfn "$INSTALL_DIR/bin/lex-claude" "$BIN_ALIAS"
+  echo "cli: $BIN_LINK (alias: lc)"
+
+  if [ -x "$INSTALL_DIR/bin/hopsdev" ]; then
+    ln -sfn "$INSTALL_DIR/bin/hopsdev" "$BIN_HOPS"
+    echo "cli: $BIN_HOPS (hopsworks-api branch switcher)"
+  fi
+
+  local sl_target="$CLAUDE_DIR/statusline-command.sh"
+  local sl_src="$INSTALL_DIR/statusline-command.sh"
+  if [ -f "$sl_src" ]; then
+    if [ -e "$sl_target" ] && [ ! -L "$sl_target" ]; then
+      cp "$sl_target" "$sl_target.bak.$(date +%s)"
+      echo "backup: $sl_target.bak.*"
+    fi
+    ln -sfn "$sl_src" "$sl_target"
+    echo "statusline: $sl_target"
+  fi
+
+  ensure_path_in_rc || true
+
+  wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
+  wire_statusline || echo "note: statusline wiring skipped. run 'lc doctor' to investigate."
+}
+
+deploy_hops_only() {
+  # Lean install: only the hopsdev binary + PATH. Touches no CLAUDE.md,
+  # skills, hook, or statusline. For teammates who just want the branch
+  # switcher without the rest of lex-claude.
+  mkdir -p "$BIN_DIR"
+  [ -x "$INSTALL_DIR/bin/hopsdev" ] || die "hopsdev not found in $INSTALL_DIR/bin"
+  ln -sfn "$INSTALL_DIR/bin/hopsdev" "$BIN_HOPS"
+  echo "cli: $BIN_HOPS (hopsworks-api branch switcher)"
+  ensure_path_in_rc || true
+}
+
+cmd_install() {
+  local yes=0 hops_only=0
+  for arg in "$@"; do
+    case "$arg" in
+      --yes|-y) yes=1 ;;
+      --hops-only) hops_only=1 ;;
+    esac
+  done
+  [ "${LEX_CLAUDE_YES:-}" = "1" ] && yes=1
+
+  if [ $hops_only -eq 1 ]; then
+    if [ -d "$INSTALL_DIR/.git" ]; then
+      reset_managed_tree
+      git -C "$INSTALL_DIR" pull --ff-only
+    else
+      mkdir -p "$(dirname "$INSTALL_DIR")"
+      git clone "$REPO_URL" "$INSTALL_DIR"
+    fi
+    deploy_hops_only
+    echo "done. hopsdev only (no identity/rules/skills/hook touched)."
+    exit 0
+  fi
+
+  local needs_prompt=0
+  [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ] && needs_prompt=1
+  [ -f "$SETTINGS" ] && needs_prompt=1
+
+  if [ $needs_prompt -eq 1 ] && [ $yes -eq 0 ]; then
+    echo "lc install will modify these existing files (backups will be created):"
+    [ -e "$CLAUDE_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_DIR/CLAUDE.md" ] && echo "  - $CLAUDE_DIR/CLAUDE.md → backup + replace with symlink to managed identity"
+    [ -e "$CLAUDE_DIR/statusline-command.sh" ] && [ ! -L "$CLAUDE_DIR/statusline-command.sh" ] && echo "  - $CLAUDE_DIR/statusline-command.sh → backup + replace with symlink to managed script"
+    [ -f "$SETTINGS" ] && echo "  - $SETTINGS → backup + jq-patch SessionStart hook + statusLine"
+    if [ -t 0 ]; then
+      printf "continue? [y/N] "
+      local r; read -r r
+      case "$r" in y|Y|yes) ;; *) echo "aborted."; exit 0 ;; esac
+    else
+      die "not a TTY. Pass --yes (or LEX_CLAUDE_YES=1) to confirm."
+    fi
+  fi
+
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    echo "already installed at $INSTALL_DIR. pulling latest"
+    reset_managed_tree
+    git -C "$INSTALL_DIR" pull --ff-only
+  else
+    mkdir -p "$(dirname "$INSTALL_DIR")"
+    git clone "$REPO_URL" "$INSTALL_DIR"
+  fi
+
+  if [ "${LEX_CLAUDE_INSTALL_REEXEC:-}" != "1" ] && [ -x "$INSTALL_DIR/bin/lex-claude" ]; then
+    if ! cmp -s "$0" "$INSTALL_DIR/bin/lex-claude" 2>/dev/null; then
+      echo "install: re-exec on-disk script (curl CDN may serve stale)"
+      LEX_CLAUDE_INSTALL_REEXEC=1 LEX_CLAUDE_YES="${LEX_CLAUDE_YES:-1}" exec "$INSTALL_DIR/bin/lex-claude" install
+    fi
+  fi
+
+  deploy
+  echo "done. open a new Claude Code session to load."
+}
+
+cmd_update() {
+  [ -d "$INSTALL_DIR/.git" ] || die "not installed. run: lex-claude install"
+  reset_managed_tree
+  git -C "$INSTALL_DIR" pull --ff-only
+  # Re-exec the freshly pulled binary for the deploy. Calling the in-memory
+  # deploy would run the pre-pull functions (stale wire_hook, etc).
+  exec "$INSTALL_DIR/bin/lex-claude" __deploy
+}
+
+sync_rules() {
+  local base="${1:-$INSTALL_DIR}"
+  [ -f "$base/RULES.md" ] || return 0
+  local f n=0
+  for f in "$base"/identities/*.md; do
+    [ -f "$f" ] || continue
+    grep -q '^<!-- LC_RULES_BEGIN -->' "$f" || continue
+    {
+      awk '/^<!-- LC_RULES_BEGIN -->/{exit} {print}' "$f"
+      printf '<!-- LC_RULES_BEGIN -->\n'
+      cat "$base/RULES.md"
+      printf '<!-- LC_RULES_END -->\n'
+      awk 'flag{print} /^<!-- LC_RULES_END -->/{flag=1}' "$f"
+    } > "$f.tmp" && mv "$f.tmp" "$f"
+    n=$((n+1))
+  done
+  echo "rules: synced into $n identit$([ $n -eq 1 ] && echo y || echo ies)$([ "$base" = "$INSTALL_DIR" ] || echo " ($base)")"
+}
+
+identity_new() {
+  local name="" desc="" empty=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name|-name) name="${2:-}"; shift 2 ;;
+      --desc|-desc) desc="${2:-}"; shift 2 ;;
+      --empty|--force-empty) empty=1; shift ;;
+      *) die "unknown flag: $1 (expected --name/--desc/--empty)" ;;
+    esac
+  done
+  [ -n "$name" ] || die "missing --name"
+  [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]] || die "name must match [a-zA-Z0-9_-]+"
+  local file="$INSTALL_DIR/identities/$name.md"
+  [ -e "$file" ] && die "identity '$name' already exists at $file"
+
+  if [ $empty -eq 1 ]; then
+    {
+      printf 'You are %s.' "$name"
+      [ -n "$desc" ] && printf ' %s' "$desc"
+      printf '\n'
+    } > "$file"
+    echo "created (empty, no shared rules): $file"
+  else
+    [ -n "$desc" ] || die "missing --desc (or use --empty)"
+    {
+      printf 'You are %s. %s\n\n' "$name" "$desc"
+      printf '<!-- LC_RULES_BEGIN -->\n'
+      cat "$INSTALL_DIR/RULES.md"
+      printf '<!-- LC_RULES_END -->\n'
+    } > "$file"
+    echo "created with shared rules: $file"
+  fi
+  echo "next:   \$EDITOR $file"
+  echo "switch: lc identity $name"
+
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    if git -C "$INSTALL_DIR" add "identities/$name.md" \
+       && git -C "$INSTALL_DIR" commit -q -m "add identity: $name" 2>/dev/null; then
+      if git -C "$INSTALL_DIR" push -q 2>/dev/null; then
+        echo "git:    committed + pushed to origin"
+      else
+        echo "git:    committed locally (push failed. no remote perms? run 'git -C $INSTALL_DIR push' manually, or: lc github-login --token <TOKEN>)"
+      fi
+    fi
+  fi
+}
+
+cmd_rules() {
+  local sub="${1:-sync}"
+  [ $# -gt 0 ] && shift
+  case "$sub" in
+    sync)
+      local base="$INSTALL_DIR"
+      if [ "${1:-}" = "--repo" ]; then
+        base="${2:-$PWD}"
+        [ -d "$base/identities" ] || die "no identities/ under $base (run from your lex-claude checkout, or: lc rules sync --repo <dir>)"
+        [ -f "$base/RULES.md" ] || die "no RULES.md under $base"
+      fi
+      sync_rules "$base"
+      ;;
+    *) die "unknown rules subcommand: $sub (expected: sync)" ;;
+  esac
+}
+
+cmd_lang() {
+  case "${1:-}" in
+    "")
+      if [ -f "$LANG_FILE" ]; then
+        local cur; cur=$(cat "$LANG_FILE" 2>/dev/null || echo "")
+        [ -n "$cur" ] && echo "lang: $cur" || echo "lang: off"
+      else
+        echo "lang: off"
+      fi
+      echo "switch: lc lang en|fr|off"
+      ;;
+    en|fr)
+      mkdir -p "$(dirname "$LANG_FILE")" 2>/dev/null || true
+      echo "$1" > "$LANG_FILE"
+      echo "lang: $1 (active next session)"
+      ;;
+    off|none|clear)
+      rm -f "$LANG_FILE"
+      echo "lang: off"
+      ;;
+    *) die "unknown lang: $1 (expected: en, fr, off)" ;;
+  esac
+}
+
+cmd_identity() {
+  local target="$CLAUDE_DIR/CLAUDE.md"
+  case "${1:-}" in
+    "")
+      local cur; cur=$(readlink "$target" 2>/dev/null || true)
+      for f in "$INSTALL_DIR"/identities/*.md; do
+        [ -e "$f" ] || continue
+        local n; n=$(basename "$f" .md)
+        [ "$cur" = "$f" ] && echo "* $n" || echo "  $n"
+      done
+      return
+      ;;
+    new)
+      shift; identity_new "$@"
+      return
+      ;;
+  esac
+  local src="$INSTALL_DIR/identities/$1.md"
+  [ -f "$src" ] || die "identity '$1' not found in $INSTALL_DIR/identities/"
+  ln -sfn "$src" "$target"
+  sync_agents_md
+  echo "switched to: $1"
+}
+
+ensure_path_in_rc() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) echo "ok    PATH includes $BIN_DIR"; return 0 ;;
+  esac
+  local rc=""
+  case "$(basename "${SHELL:-}")" in
+    zsh)  rc="$HOME/.zshrc" ;;
+    bash) rc="$HOME/.bashrc" ;;
+    *) echo "warn  unknown shell ($SHELL). add manually: export PATH=\"\$HOME/.local/bin:\$PATH\""; return 1 ;;
+  esac
+  local line='export PATH="$HOME/.local/bin:$PATH"'
+  if [ -f "$rc" ] && grep -Fq "$line" "$rc"; then
+    echo "ok    PATH export already in $rc. re-source it: source $rc"
+    return 0
+  fi
+  printf '\n# added by lex-claude\n%s\n' "$line" >> "$rc"
+  echo "fix   appended PATH export to $rc. re-source it: source $rc"
+}
+
+SKIP_BEGIN='# >>> lex-claude skip >>>'
+SKIP_END='# <<< lex-claude skip <<<'
+SKIP_CLAUDE_ALIAS="alias claude='claude --dangerously-skip-permissions'"
+SKIP_CODEX_ALIAS="alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
+
+rc_file() {
+  case "$(basename "${SHELL:-}")" in
+    zsh)  echo "$HOME/.zshrc" ;;
+    bash) echo "$HOME/.bashrc" ;;
+    *) return 1 ;;
+  esac
+}
+
+cmd_skip() {
+  local rc
+  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'; alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
+  case "${1:-status}" in
+    on)
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc" && grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
+        echo "skip: already on for Claude and Codex ($rc)"
+      else
+        if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+          awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
+            '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
+        fi
+        printf '\n%s\n%s\n%s\n%s\n' \
+          "$SKIP_BEGIN" "$SKIP_CLAUDE_ALIAS" "$SKIP_CODEX_ALIAS" "$SKIP_END" >> "$rc"
+        echo "skip: on. Claude skips permissions; Codex bypasses approvals and sandboxing"
+      fi
+      echo "re-source: source $rc  (or open a new shell)"
+      ;;
+    off)
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+        awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
+          '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
+        echo "skip: off. re-source: source $rc (or new shell). in this shell: unalias claude codex"
+      else
+        echo "skip: already off"
+      fi
+      ;;
+    status|"")
+      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
+        if grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
+          echo "skip: on for Claude and Codex ($rc)"
+        else
+          echo "skip: Claude only ($rc). run 'lc skip on' to add Codex"
+        fi
+      else
+        echo "skip: off"
+      fi
+      echo "toggle: lc skip on|off"
+      ;;
+    *) die "unknown skip arg: $1 (expected: on, off, status)" ;;
+  esac
+}
+
+# Hopsworks pods boot preconfigured as "Admin Admin <admin@hopsworks.ai>";
+# that default is as good as unset. A real identity is never overwritten.
+github_set_identity() {
+  local who="$1"
+  [ -n "$who" ] && [ "$who" != "?" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+  local cur_name cur_email
+  cur_name=$(git config --global user.name 2>/dev/null || true)
+  cur_email=$(git config --global user.email 2>/dev/null || true)
+  [ "$cur_name" = "Admin Admin" ] && cur_name=""
+  [ "$cur_email" = "admin@hopsworks.ai" ] && cur_email=""
+  if [ -n "$cur_name" ] && [ -n "$cur_email" ]; then return 0; fi
+  local email="$who@users.noreply.github.com"
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    local gh_email gh_id
+    gh_email=$(gh api user --jq '.email // empty' 2>/dev/null || true)
+    gh_id=$(gh api user --jq .id 2>/dev/null || true)
+    if [ -n "$gh_email" ]; then email="$gh_email"
+    elif [ -n "$gh_id" ]; then email="$gh_id+$who@users.noreply.github.com"; fi
+  fi
+  if [ -z "$cur_email" ]; then
+    git config --global user.email "$email"
+    echo "git: set user.email to $email (override with: git config --global user.email ...)"
+  fi
+  if [ -z "$cur_name" ]; then
+    git config --global user.name "$who"
+    echo "git: set user.name to $who"
+  fi
+}
+
+# A stored https credential must not be shadowed by a stale ssh rewrite:
+# ssh dies with the forwarded agent, the token does not.
+github_drop_ssh_rewrite() {
+  git config --global --unset "url.git@github.com:.insteadOf" 2>/dev/null || true
+}
+
+github_ssh_user() {
+  # github always closes with exit 1; success is the greeting on stderr.
+  command -v ssh >/dev/null 2>&1 || return 0
+  ssh -T git@github.com -o BatchMode=yes -o ConnectTimeout=5 2>&1 \
+    | sed -n 's/^Hi \([^!]*\)!.*successfully authenticated.*/\1/p' | head -n1 || true
+}
+
+github_login_token() {
+  local token="$1"
+  [ -n "$token" ] || die "empty token."
+  if command -v gh >/dev/null 2>&1; then
+    printf '%s' "$token" | gh auth login --with-token --hostname github.com
+    gh auth setup-git
+    github_drop_ssh_rewrite
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: authenticated as $user"
+    echo "git: gh credential helper wired for github.com"
+    github_set_identity "$user"
+  else
+    git config --global credential.helper store
+    local user
+    user=$(curl -fsSL -H "Authorization: token $token" https://api.github.com/user 2>/dev/null \
+           | sed -n 's/.*"login": *"\([^"]*\)".*/\1/p' | head -n1) || true
+    [ -n "$user" ] || die "token rejected by github api. check scope/expiry."
+    github_drop_ssh_rewrite
+    {
+      printf 'https://%s:%s@github.com\n' "$user" "$token"
+    } > "$HOME/.git-credentials"
+    chmod 600 "$HOME/.git-credentials"
+    echo "git: stored credentials in ~/.git-credentials as $user"
+    echo "note: install gh for richer auth (PRs, issues). brew install gh / apt install gh."
+    github_set_identity "$user"
+  fi
+}
+
+cmd_github_login() {
+  local token=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --token|-t) token="${2:-}"; shift 2 ;;
+      *) die "unknown flag: $1 (expected --token)" ;;
+    esac
+  done
+
+  # explicit token always wins (re-provisioning, rotation)
+  if [ -n "$token" ]; then github_login_token "$token"; return 0; fi
+
+  # already wired: cheap no-op, safe to run from hooks/rc on every boot
+  if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: already authenticated as $user. nothing to do."
+    github_set_identity "$user"
+    return 0
+  fi
+
+  token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  if [ -n "$token" ]; then github_login_token "$token"; return 0; fi
+
+  # device flow: persists in ~/.config/gh, survives restarts and disconnects.
+  # preferred over the ssh rewrite whenever a human is attached.
+  if [ -t 0 ] && command -v gh >/dev/null 2>&1; then
+    echo "gh: no auth found. starting device flow (open the code in any browser)..."
+    gh auth login --web --hostname github.com --git-protocol https
+    gh auth setup-git
+    github_drop_ssh_rewrite
+    local user; user=$(gh api user --jq .login 2>/dev/null || echo "?")
+    echo "gh: authenticated as $user. token persisted in ~/.config/gh (survives restarts)."
+    github_set_identity "$user"
+    return 0
+  fi
+
+  # no tty: a forwarded ssh agent still covers git for the current session
+  local ssh_user; ssh_user=$(github_ssh_user)
+  if [ -n "$ssh_user" ]; then
+    git config --global "url.git@github.com:.insteadOf" "https://github.com/"
+    echo "git: ssh agent answers as $ssh_user. https github remotes rewritten to ssh (nothing stored)."
+    echo "gh: api not authenticated. for headless gh set GH_TOKEN, or run 'lc github-login' from a terminal."
+    github_set_identity "$ssh_user"
+    return 0
+  fi
+
+  # tty without gh: token is the only remaining path
+  if [ -t 0 ]; then
+    printf "github personal access token (input hidden): "
+    stty -echo 2>/dev/null || true
+    read -r token
+    stty echo 2>/dev/null || true
+    printf '\n'
+    github_login_token "$token"
+    return 0
+  fi
+
+  die "no auth path: gh not authenticated, no GH_TOKEN/GITHUB_TOKEN, no ssh agent, no tty for device flow."
+}
+
+cmd_awake() {
+  local pid_file="$HOME/.cache/lex-claude/awake.pid"
+  mkdir -p "$(dirname "$pid_file")" 2>/dev/null || true
+
+  case "${1:-}" in
+    off|stop)
+      if [ -f "$pid_file" ]; then
+        local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" 2>/dev/null
+          rm -f "$pid_file"
+          echo "awake: stopped (pid $pid)"
+        else
+          rm -f "$pid_file"
+          echo "awake: not active (stale pidfile cleared)"
+        fi
+      else
+        echo "awake: not active"
+      fi
+      return
+      ;;
+    status)
+      if [ -f "$pid_file" ]; then
+        local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          local cmdline; cmdline=$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^ *//')
+          local started; started=$(ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^ *//')
+          echo "awake: active (pid $pid)"
+          echo "       started: $started"
+          echo "       command: $cmdline"
+          return
+        fi
+        rm -f "$pid_file"
+      fi
+      echo "awake: not active"
+      return
+      ;;
+    -h|--help|help)
+      cat <<'EOF'
+lc awake. keep this Mac from sleeping while idle.
+
+Usage:
+  lc awake [duration]        run until duration elapses (default: until 'lc awake off')
+  lc awake --while <pid>     stay awake while <pid> is alive
+  lc awake off               stop the active assertion
+  lc awake status            show whether an assertion is held
+
+Duration:
+  Examples: 30m, 2h, 1h30m, 45s, or raw seconds. Empty = no timeout.
+
+Mechanism:
+  Wraps `caffeinate -dimsu`. Blocks display sleep, idle sleep, disk sleep, and
+  declares the user active.
+
+Limit:
+  Closing the lid on Apple Silicon will still sleep the Mac. The lid switch is
+  routed through the SMC; no IOPMAssertion overrides it. To work lid-closed you
+  need clamshell mode: power adapter + external display (or an EDID dummy plug).
+EOF
+      return
+      ;;
+  esac
+
+  command -v caffeinate >/dev/null 2>&1 || die "caffeinate not found (macOS-only command)"
+
+  local target_pid="" duration_str=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --while|-w)
+        target_pid="${2:-}"
+        [ -n "$target_pid" ] || die "--while requires a pid"
+        kill -0 "$target_pid" 2>/dev/null || die "no such pid: $target_pid"
+        shift 2
+        ;;
+      *)
+        [ -z "$duration_str" ] || die "unexpected arg: $1"
+        duration_str="$1"
+        shift
+        ;;
+    esac
+  done
+
+  local seconds=0
+  if [ -n "$duration_str" ]; then
+    if [[ "$duration_str" =~ ^[0-9]+$ ]]; then
+      seconds=$duration_str
+    else
+      local rest="$duration_str"
+      while [ -n "$rest" ]; do
+        if [[ "$rest" =~ ^([0-9]+)([smhd])(.*)$ ]]; then
+          local n=${BASH_REMATCH[1]} u=${BASH_REMATCH[2]}
+          rest=${BASH_REMATCH[3]}
+          case "$u" in
+            s) seconds=$((seconds + n)) ;;
+            m) seconds=$((seconds + n * 60)) ;;
+            h) seconds=$((seconds + n * 3600)) ;;
+            d) seconds=$((seconds + n * 86400)) ;;
+          esac
+        else
+          die "invalid duration: $duration_str (expected: 30m, 2h, 1h30m, 45s, or raw seconds)"
+        fi
+      done
+    fi
+  fi
+
+  if [ -f "$pid_file" ]; then
+    local old; old=$(cat "$pid_file" 2>/dev/null || echo "")
+    if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
+      kill "$old" 2>/dev/null
+      echo "awake: replaced previous assertion (pid $old)"
+    fi
+    rm -f "$pid_file"
+  fi
+
+  local args=(-dimsu)
+  if [ -n "$target_pid" ]; then
+    args+=(-w "$target_pid")
+  elif [ "$seconds" -gt 0 ]; then
+    args+=(-t "$seconds")
+  fi
+
+  nohup caffeinate "${args[@]}" >/dev/null 2>&1 &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" > "$pid_file"
+
+  if [ -n "$target_pid" ]; then
+    echo "awake: pid $pid, while pid $target_pid is alive"
+  elif [ "$seconds" -gt 0 ]; then
+    local h=$((seconds / 3600)) m=$(((seconds % 3600) / 60)) s=$((seconds % 60))
+    local human=""
+    [ "$h" -gt 0 ] && human="${human}${h}h"
+    [ "$m" -gt 0 ] && human="${human}${m}m"
+    [ "$s" -gt 0 ] && human="${human}${s}s"
+    [ -z "$human" ] && human="${seconds}s"
+    echo "awake: pid $pid, for $human"
+  else
+    echo "awake: pid $pid, no timeout. stop with: lc awake off"
+  fi
+}
+
+cmd_codex() {
+  local print_only=0
+  local context_mode="full"
+  while [ $# -gt 0 ]; do
+    case "${1:-}" in
+      --print) print_only=1; shift ;;
+      --lite) context_mode="lite"; shift ;;
+      --full) context_mode="full"; shift ;;
+      -h|--help|help)
+      cat <<'EOF'
+lc codex. launch Codex with lex-claude context preloaded.
+
+Usage:
+  lc codex [--lite|--full] [prompt]
+  lc codex --print [--lite|--full] [prompt]
+
+Behavior:
+  Builds the same context as the Claude SessionStart hook.
+  --full loads: active identity, project CLAUDE.md, docs/*, lc command reference, and lang.
+  --lite loads: active identity, project CLAUDE.md, lc command reference, and lang.
+  Then launches `codex` with that bundle as the initial prompt.
+EOF
+      return
+      ;;
+      --*) die "unknown flag: $1 (expected --print, --lite, --full)" ;;
+      *) break ;;
+    esac
+  done
+
+  local hook_script="$SELF_DIR/hook.sh"
+  [ -f "$hook_script" ] || hook_script="$INSTALL_DIR/hook.sh"
+  [ -f "$hook_script" ] || die "hook.sh not found"
+
+  local prompt=""
+  prompt="$(LEX_CLAUDE_CONTEXT_MODE="$context_mode" CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
+
+  if [ $# -gt 0 ]; then
+    prompt="${prompt}
+
+===== user prompt =====
+$*"
+  fi
+
+  if [ $print_only -eq 1 ]; then
+    printf '%s\n' "$prompt"
+    return
+  fi
+
+  command -v codex >/dev/null 2>&1 || die "codex not found on PATH"
+  exec codex "$prompt"
+}
+
+cmd_init() {
+  case "${1:-help}" in
+    zsh)
+      cat <<'EOF'
+# lex-claude zsh completion. Add to ~/.zshrc: eval "$(lc init zsh)"
+_lc() {
+  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds install_cmds lang_cmds skip_cmds
+  cmds=(
+    'install:bootstrap clone + symlinks + hooks'
+    'update:pull latest and redeploy'
+    'identity:manage active identity'
+    'rules:sync RULES.md across identities'
+    'lang:set Claude reply language (en|fr|off)'
+    'skip:toggle Claude and Codex bypass aliases'
+    'github-login:wire gh + git auth (auto-detect, idempotent)'
+    'awake:keep Mac awake (caffeinate wrapper)'
+    'codex:launch Codex with lex-claude context preloaded'
+    'init:shell completion + context dump'
+    'usage:report used / never-used commands + skills'
+    'doctor:sanity-check the install'
+    'version:print install version'
+  )
+  awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid')
+  codex_cmds=('--print:dump the generated prompt' '--lite:load identity + project CLAUDE.md only' '--full:load full docs bundle' 'help:show help')
+  init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
+  install_cmds=('--yes:skip overwrite prompt' '--hops-only:install only the hopsdev binary')
+  identity_cmds=('new:create a new identity')
+  rules_cmds=('sync:re-inject RULES.md')
+  lang_cmds=('en:English' 'fr:French' 'off:clear (Claude picks)')
+  skip_cmds=('on:enable the alias' 'off:remove the alias' 'status:show current state')
+  local state
+  _arguments -C '1: :->cmd' '*::arg:->args'
+  case $state in
+    cmd) _describe 'subcommand' cmds ;;
+    args)
+      case $words[1] in
+        install)  _describe 'install' install_cmds ;;
+        awake)    _describe 'awake' awake_cmds ;;
+        codex)    _describe 'codex' codex_cmds ;;
+        init)     _describe 'init target' init_cmds ;;
+        identity) _describe 'identity action' identity_cmds ;;
+        rules)    _describe 'rules action' rules_cmds ;;
+        lang)     _describe 'lang' lang_cmds ;;
+        skip)     _describe 'skip' skip_cmds ;;
+      esac
+      ;;
+  esac
+}
+compdef _lc lc
+compdef _lc lex-claude
+EOF
+      ;;
+    bash)
+      cat <<'EOF'
+# lex-claude bash completion. Add to ~/.bashrc: eval "$(lc init bash)"
+_lc() {
+  local cur prev cmds
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmds="install update identity rules lang skip github-login awake codex init usage doctor version"
+  case "$prev" in
+    lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
+    install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
+    awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
+    codex)         COMPREPLY=( $(compgen -W "--print --lite --full help" -- "$cur") ) ;;
+    init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
+    identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
+    rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
+    lang)          COMPREPLY=( $(compgen -W "en fr off" -- "$cur") ) ;;
+    skip)          COMPREPLY=( $(compgen -W "on off status" -- "$cur") ) ;;
+  esac
+}
+complete -F _lc lc
+complete -F _lc lex-claude
+EOF
+      ;;
+    claude)
+      cat <<'EOF'
+The user has `lc` (alias of `lex-claude`) installed locally. It manages the
+global Claude Code config: identity, rules, hooks, skills, statusline.
+
+Available subcommands (run with `lc <cmd>`):
+
+- `identity`                                  list identities (active marked *)
+- `identity <name>`                           switch active identity
+- `identity new --name <n> --desc "<d>"`      create identity (with shared rules)
+- `identity new --name <n> --empty`           create identity (no shared rules)
+- `rules sync`                                re-inject RULES.md into all identities (deployed install)
+- `rules sync --repo [DIR]`                   re-inject in a dev checkout (DIR, default $PWD), then commit there
+- `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
+- `skip on|off|status`                        toggle shell aliases for Claude and Codex permission bypass
+- `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
+- `awake --while <pid>`                       stay awake while pid is alive
+- `awake off`                                 stop the active assertion
+- `awake status`                              inspect (shows pid, started, command)
+- `codex [--lite|--full] [prompt]`            launch Codex with lex-claude context preloaded
+- `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
+- `init zsh|bash`                             output shell completion
+- `init claude`                               print this command reference
+- `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
+- `usage`                                     report which commands + skills get used (never-used = debloat candidates)
+- `doctor`                                    sanity-check the install
+- `update`                                    pull latest + redeploy
+- `version`                                   print install version
+
+Sibling binary `hopsdev` (deployed alongside `lc`, points the local `hops`
+CLI at a hopsworks-api branch):
+
+- `hopsdev <branch>`                           clone MagicLex/hopsworks-api@branch, editable install, relink skills
+- `hopsdev <owner/repo>@<branch>`              same, from a different fork (or a full git URL)
+- `hopsdev --quick <spec>`                     skip clone + skills: uv pip install --force-reinstall git+...@branch
+- `hopsdev --status`                           show where `hops` resolves now
+- `hopsdev init [dir]`                         clone logicalclocks/workspaces into [dir] (default ./workspaces)
+- `lc install --hops-only`                     install just `hopsdev` (no identity/rules/skills/hook)
+
+Notes:
+- `lc awake` cannot bypass lid-close sleep on Apple Silicon. The lid switch is
+  routed through the SMC in firmware; no IOPMAssertion overrides it. Clamshell
+  mode (power + external display, or an EDID dummy plug) is the only path.
+- The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
+- The statusline at ~/.claude/statusline-command.sh is also managed (renders
+  dir, git status, identity, lang (if set), and a token meter that turns red
+  past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
+- A condensed rules digest (DIGEST.md) is re-injected every Nth prompt
+  (LEX_CLAUDE_DIGEST_EVERY, default 5) to keep the rules salient in long
+  sessions. Treat it as recall, not new instructions.
+- This reference is auto-loaded at session start by the SessionStart hook.
+EOF
+      ;;
+    help|-h|--help|"")
+      cat <<EOF
+lc init. shell completion and Claude Code context dump.
+
+Usage:
+  lc init zsh       output zsh completion. Add to ~/.zshrc:
+                      eval "\$(lc init zsh)"
+  lc init bash      output bash completion. Add to ~/.bashrc:
+                      eval "\$(lc init bash)"
+  lc init claude    print the lex-claude command reference. The SessionStart
+                    hook auto-injects this so Claude Code knows about \`lc\`
+                    in every session. Run manually for inspection or piping.
+EOF
+      ;;
+    *)
+      die "unknown init target: $1 (expected: zsh, bash, claude)"
+      ;;
+  esac
+}
+
+cmd_doctor() {
+  local ok=1
+  if [ -d "$INSTALL_DIR/.git" ]; then
+    local n date
+    n=$(git -C "$INSTALL_DIR" rev-list --count HEAD 2>/dev/null || echo '?')
+    date=$(git -C "$INSTALL_DIR" log -1 --format=%cs HEAD 2>/dev/null || echo '?')
+    echo "ok    version v$n ($date)"
+  else
+    echo "warn  $INSTALL_DIR has no .git. version unknown"
+  fi
+  if [ -L "$CLAUDE_DIR/CLAUDE.md" ] && [ -e "$CLAUDE_DIR/CLAUDE.md" ]; then
+    echo "ok    CLAUDE.md → $(readlink "$CLAUDE_DIR/CLAUDE.md")"
+  else
+    echo "fail  CLAUDE.md not linked"; ok=0
+  fi
+  if [ -L "$AGENTS_LINK" ] && [ -e "$AGENTS_LINK" ]; then
+    echo "ok    AGENTS.md → $(readlink "$AGENTS_LINK")"
+  else
+    echo "warn  codex AGENTS.md not linked (run 'lc update')"
+  fi
+  for skill in "$INSTALL_DIR"/skills/*/; do
+    [ -d "$skill" ] || continue
+    local name; name=$(basename "$skill")
+    [ -L "$CLAUDE_DIR/skills/$name" ] && echo "ok    skill $name" || { echo "fail  skill $name"; ok=0; }
+    [ -L "$CODEX_SKILLS_DIR/$name" ] && echo "ok    codex skill $name" || { echo "fail  codex skill $name"; ok=0; }
+  done
+  grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
+  if [ -L "$CLAUDE_DIR/statusline-command.sh" ] && [ -e "$CLAUDE_DIR/statusline-command.sh" ]; then
+    echo "ok    statusline → $(readlink "$CLAUDE_DIR/statusline-command.sh")"
+  else
+    echo "warn  statusline not symlinked"
+  fi
+  grep -q "statusline-command.sh" "$SETTINGS" 2>/dev/null && echo "ok    statusline wired" || echo "warn  statusline not wired in $SETTINGS"
+  [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
+  [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
+  if [ -L "$BIN_HOPS" ] && [ -e "$BIN_HOPS" ]; then
+    echo "ok    hopsdev ($BIN_HOPS)"
+  else
+    echo "warn  hopsdev not symlinked (run 'lc update' or 'lc install --hops-only')"
+  fi
+  ensure_path_in_rc || ok=0
+  grep -q "lex-claude/usage" "$SETTINGS" 2>/dev/null && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
+  grep -q "lex-claude/digest" "$SETTINGS" 2>/dev/null && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
+  grep -q "lex-claude/style" "$SETTINGS" 2>/dev/null && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
+  [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
+  [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
+}
+
+cmd_usage() {
+  local script="$SELF_DIR/usage.sh"
+  [ -x "$script" ] || script="$INSTALL_DIR/usage.sh"
+  [ -x "$script" ] || die "usage.sh not found (run 'lc update')"
+  bash "$script" report
+}
+
+case "${1:-}" in
+  install|update|__deploy|identity|rules|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
+  *) auto_update "$@" ;;
+esac
+
+# usage trace — record the top-level command so the never-used surface is data,
+# not a guess. Best-effort: a logging failure must never block the command.
+case "${1:-}" in
+  -v|--version)            usage_cmd=version ;;
+  -h|-help|--help|help|"") usage_cmd="" ;;
+  init)                    usage_cmd="" ;;   # plumbing: auto-fired by shell completion + SessionStart, never debloatable
+  __deploy)                usage_cmd="" ;;   # plumbing: post-pull re-exec from update/auto_update
+  *)                       usage_cmd="${1:-}" ;;
+esac
+if [ -n "$usage_cmd" ]; then
+  usage_sh="$SELF_DIR/usage.sh"; [ -x "$usage_sh" ] || usage_sh="$INSTALL_DIR/usage.sh"
+  [ -x "$usage_sh" ] && bash "$usage_sh" log cli "$usage_cmd" 2>/dev/null || true
+fi
+
+case "${1:-}" in
+  install)      shift; cmd_install "$@" ;;
+  update)       shift; cmd_update "$@" ;;
+  __deploy)     shift; deploy; echo "updated." ;;
+  identity)     shift; cmd_identity "$@" ;;
+  rules)        shift; cmd_rules "$@" ;;
+  lang)         shift; cmd_lang "$@" ;;
+  skip)         shift; cmd_skip "$@" ;;
+  github-login) shift; cmd_github_login "$@" ;;
+  awake)        shift; cmd_awake "$@" ;;
+  codex)        shift; cmd_codex "$@" ;;
+  init)         shift; cmd_init "$@" ;;
+  doctor)       shift; cmd_doctor "$@" ;;
+  usage)        shift; cmd_usage "$@" ;;
+  version|-v|--version) cmd_version ;;
+  -h|-help|--help|help|"") usage ;;
+  *) usage; exit 1 ;;
+esac
