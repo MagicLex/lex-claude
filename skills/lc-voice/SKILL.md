@@ -1,11 +1,11 @@
 ---
 name: lc-voice
-description: Write as Lex, in his own voice. Use whenever drafting anything published or signed in Lex's name, whatever the medium. blog posts, LinkedIn posts, cold emails, outreach, cover letters, recruiter replies, talk abstracts, newsletters. Also use when the user says "write this as me", "in my voice", "draft an email to", or asks to red-pen a draft. NOT for docs, PRs, tickets, or code comments (RULES.md writing style covers those).
+description: Write as Lex, in his own voice. Use whenever drafting anything published or signed in Lex's name, whatever the medium. blog posts, LinkedIn posts, cold emails, outreach, talk abstracts, newsletters. Also use when the user says "write this as me", "in my voice", "draft an email to", or asks to red-pen a draft. NOT for docs, PRs, tickets, or code comments (RULES.md writing style covers those).
 ---
 
 Lex's voice. One DNA, four registers. The DNA never changes; the sarcasm dial does. Pick the register first, then write.
 
-Full raw corpus (when on Lex's machine): `~/Documents/magiclex/job-filler/profile/VOICE-CORPUS.md`, analysis in `VOICE.md` next to it. Read the corpus before any long-form draft; these rules are the distillation, not the ground truth.
+Full raw corpus lives on Lex's machine (`VOICE-CORPUS.md`, analysis in `VOICE.md` next to it; ask him where if not obvious). Read the corpus before any long-form draft; these rules are the distillation, not the ground truth.
 
 ## The DNA (every register)
 
@@ -25,10 +25,10 @@ Sarcasm is contextual. Same DNA everywhere; what changes is how much bite the ve
 
 | Register | Venue | Sarcasm | Notes |
 |---|---|---|---|
-| Personal blog | rawquery.dev, personal posts | Full | Understatement that deflates ("reinvented hot water", "wankery"), flagged wordplay ("if the SaaS ain't SaaSSing"), mom-as-benchmark jokes. |
+| Personal blog | personal posts | Full | Understatement that deflates ("reinvented hot water", "wankery"), flagged wordplay ("if the SaaS ain't SaaSSing"), mom-as-benchmark jokes. |
 | Professional blog | Hopsworks blog, talks, Medium | Wit yes, snark no | Playful headers fine ("Slop Used to be Called MVP"). Self-deprecation stays. No bite at competitors or readers. |
-| Outreach | Cold email, cover letters, recruiter replies, LinkedIn DMs | One light touch max | Warm and direct ("So, obviously, I quite like what you guys are doing"). Facts carry it. Never sarcastic at the recipient. Cold email opens with the recipient's reality (what they built, starred, wrote), one plain sentence on what Lex is building, ends on an open question. Cover letters open with a fact about what Lex did: hook, proof, close, three paragraphs max. |
-| Forms | ATS fields, screening questions | Zero | Flat facts. No voice performance, no jokes a tired recruiter can misread. |
+| Outreach | Cold email, LinkedIn DMs | One light touch max | Warm and direct ("So, obviously, I quite like what you guys are doing"). Facts carry it. Never sarcastic at the recipient. Cold email opens with the recipient's reality (what they built, starred, wrote), one plain sentence on what Lex is building, ends on an open question. |
+| Forms | Web forms, short-answer fields | Zero | Flat facts. No voice performance, no jokes a tired reader can misread. |
 
 When the venue is ambiguous (a reply that may get forwarded, a public comment on someone's post), drop one register, not up.
 
