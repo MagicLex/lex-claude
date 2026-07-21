@@ -43,7 +43,7 @@ Lex chose autonomy over a per-lesson gate: he wants to feel the drift over time,
 ## Guardrails
 
 - **Learn his corrections, not my self-flagellation.** The signal must be Lex redirecting me, never a line where I narrated my own mistake.
-- **No volatile state.** No live branch names, no "currently on X", no relative dates, no values that will be stale next month. Point at a source of truth (a file, git) instead of copying it - e.g. job criteria live in `CRITERIA.md`, reference it, don't inline the numbers.
+- **No volatile state.** No live branch names, no "currently on X", no relative dates, no values that will be stale next month. Point at a source of truth (a file, git) instead of copying it - reference the file that owns a number, don't inline the number.
 - **The block is persona, not a second rulebook.** A universal code-club rule (applies to every identity) belongs in RULES.md, not here. Note such a case in the changelog for Lex to move by hand.
 - **Honesty ceiling.** This converges sonoflex toward Lex's stated corrections and written voice. It does not read his mind. It makes sonoflex less wrong about Lex, not "him".
 - **Autonomy limits.** Never push. Never touch anything outside the LC_LEARNED markers. Never run when another sonoflex-learn pass holds the lock (the runner flocks).
