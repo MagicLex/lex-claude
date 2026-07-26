@@ -580,6 +580,27 @@ _cleanup_claude_fn() {
   _strip_rc_block "$rc" "$FN_BEGIN" "$FN_END"
 }
 
+_model_list() {
+  cat <<'MODELS'
+sonnet	Sonnet 5 (latest)
+opus	Opus 5 (latest)
+fable	Fable 5 (latest)
+haiku	Haiku 4.5
+best	auto-select best available
+sonnet[1m]	Sonnet 5, 1M context
+opus[1m]	Opus 5, 1M context
+fable[1m]	Fable 5, 1M context
+opusplan	Opus with plan mode
+claude-opus-4-8	Opus 4.8
+claude-opus-4-8[1m]	Opus 4.8, 1M context
+claude-opus-4-7	Opus 4.7
+claude-opus-4-7[1m]	Opus 4.7, 1M context
+claude-opus-4-6	Opus 4.6
+claude-sonnet-4-5-20250514	Sonnet 4.5
+claude-haiku-4-5-20251001	Haiku 4.5 (full ID)
+MODELS
+}
+
 cmd_skip() {
   local rc
   rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'"
@@ -629,16 +650,19 @@ cmd_model() {
       echo "pin: lc model <name>    list: lc model list    clear: lc model off"
       ;;
     list)
-      local models=("sonnet" "opus" "haiku" "fable" "best" "sonnet[1m]" "opus[1m]" "fable[1m]" "opusplan")
       local current="default"
       [ -f "$MODEL_FILE" ] && current=$(cat "$MODEL_FILE" 2>/dev/null)
       if [ -t 0 ] && [ -t 1 ]; then
         local picked=""
         if command -v fzf >/dev/null 2>&1; then
-          picked=$(printf '%s\n' "${models[@]}" | fzf --prompt="model> " --header="current: $current  (full IDs also work: claude-fable-5)")
+          picked=$(_model_list | fzf --prompt="model> " --header="current: $current" \
+            --delimiter=$'\t' --with-nth=1,2 --tabstop=28 \
+            --preview-window=hidden | cut -f1)
         else
+          local -a ids; local line
+          while IFS=$'\t' read -r id _desc; do ids+=("$id"); done < <(_model_list)
           echo "pick a model (current: $current):"
-          select m in "${models[@]}" "(cancel)"; do
+          select m in "${ids[@]}" "(cancel)"; do
             [ "$m" = "(cancel)" ] || [ -z "$m" ] && break
             picked="$m"; break
           done
@@ -652,10 +676,8 @@ cmd_model() {
           echo "re-source: source $rc  (or open a new shell)"
         fi
       else
-        echo "aliases:  sonnet  opus  haiku  fable  best"
-        echo "extended: sonnet[1m]  opus[1m]  fable[1m]  opusplan"
-        echo "full model IDs also accepted (e.g. claude-fable-5)"
-        echo "pinned:   $current"
+        _model_list | column -t -s $'\t' 2>/dev/null || _model_list
+        echo "pinned: $current"
       fi
       ;;
     off|default|clear|none)
