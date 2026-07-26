@@ -14,6 +14,8 @@ CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
 AGENTS_LINK="$CODEX_DIR/AGENTS.md"
 CODEX_SKILLS_DIR="$CODEX_DIR/skills"
 LANG_FILE="$INSTALL_DIR/.lang"
+MODEL_FILE="$INSTALL_DIR/.model"
+SKIP_FILE="$INSTALL_DIR/.skip"
 # ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
@@ -66,10 +68,14 @@ Usage:
   lex-claude identity new --name <n> --empty         Create identity without shared rules.
   lex-claude rules sync                              Re-inject RULES.md into all managed identities (deployed install).
   lex-claude rules sync --repo [DIR]                 Same, but against a dev checkout (DIR, default \$PWD). Then commit/push from there.
+  lex-claude model                                   Print pinned model (or default).
+  lex-claude model list                              Interactive picker: choose a model from the list.
+  lex-claude model <name>                            Pin a default model (e.g. opus, sonnet, claude-fable-5).
+  lex-claude model off                               Clear pin, back to Claude Code default.
   lex-claude lang                                    Print active language (en/fr/off).
   lex-claude lang en|fr                              Set the language. Hook injects "Respond in X." at SessionStart; statusline shows it.
   lex-claude lang off                                Clear (Claude picks the language).
-  lex-claude skip on|off|status                      Toggle shell aliases so Claude and Codex bypass approvals and sandboxing.
+  lex-claude skip on|off|status                      Toggle shell function wrapper so Claude and Codex bypass approvals and sandboxing.
   lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Also sets git author (user.name/email) when unset or pod default. Idempotent, safe in hooks/rc.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
@@ -520,10 +526,10 @@ ensure_path_in_rc() {
   echo "fix   appended PATH export to $rc. re-source it: source $rc"
 }
 
-SKIP_BEGIN='# >>> lex-claude skip >>>'
-SKIP_END='# <<< lex-claude skip <<<'
-SKIP_CLAUDE_ALIAS="alias claude='claude --dangerously-skip-permissions'"
-SKIP_CODEX_ALIAS="alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
+SKIP_BEGIN_OLD='# >>> lex-claude skip >>>'
+SKIP_END_OLD='# <<< lex-claude skip <<<'
+FN_BEGIN='# >>> lex-claude claude >>>'
+FN_END='# <<< lex-claude claude <<<'
 
 rc_file() {
   case "$(basename "${SHELL:-}")" in
@@ -533,46 +539,139 @@ rc_file() {
   esac
 }
 
+_strip_rc_block() {
+  local rc="$1" begin="$2" end="$3"
+  [ -f "$rc" ] && grep -Fq "$begin" "$rc" || return 0
+  awk -v b="$begin" -v e="$end" '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
+}
+
+_claude_fn_block() {
+  cat <<'BLOCK'
+claude() {
+  local _f=()
+  [ -f "$HOME/.claude/lex-claude/.model" ] && _f+=(--model "$(cat "$HOME/.claude/lex-claude/.model")")
+  [ -f "$HOME/.claude/lex-claude/.skip" ] && _f+=(--dangerously-skip-permissions)
+  command claude "${_f[@]}" "$@"
+}
+codex() {
+  local _f=()
+  [ -f "$HOME/.claude/lex-claude/.skip" ] && _f+=(--dangerously-bypass-approvals-and-sandbox)
+  command codex "${_f[@]}" "$@"
+}
+BLOCK
+}
+
+_ensure_claude_fn() {
+  local rc
+  rc=$(rc_file) || return 1
+  # Migrate old skip alias block → dot file
+  if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN_OLD" "$rc"; then
+    [ ! -f "$SKIP_FILE" ] && { mkdir -p "$(dirname "$SKIP_FILE")" 2>/dev/null || true; touch "$SKIP_FILE"; }
+    _strip_rc_block "$rc" "$SKIP_BEGIN_OLD" "$SKIP_END_OLD"
+  fi
+  # Function block already present? Done.
+  [ -f "$rc" ] && grep -Fq "$FN_BEGIN" "$rc" && return 0
+  { printf '\n%s\n' "$FN_BEGIN"; _claude_fn_block; printf '%s\n' "$FN_END"; } >> "$rc"
+}
+
+_cleanup_claude_fn() {
+  [ -f "$SKIP_FILE" ] || [ -f "$MODEL_FILE" ] && return 0
+  local rc; rc=$(rc_file) || return 0
+  _strip_rc_block "$rc" "$FN_BEGIN" "$FN_END"
+}
+
 cmd_skip() {
   local rc
-  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'; alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
+  rc=$(rc_file) || die "unknown shell ($SHELL). add manually: alias claude='claude --dangerously-skip-permissions'"
+  # Migrate old alias block if present
+  if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN_OLD" "$rc" && [ ! -f "$SKIP_FILE" ]; then
+    _ensure_claude_fn
+    echo "(migrated skip from alias to function wrapper)"
+  fi
   case "${1:-status}" in
     on)
-      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc" && grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
-        echo "skip: already on for Claude and Codex ($rc)"
+      if [ -f "$SKIP_FILE" ]; then
+        echo "skip: already on"
       else
-        if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
-          awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
-            '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
-        fi
-        printf '\n%s\n%s\n%s\n%s\n' \
-          "$SKIP_BEGIN" "$SKIP_CLAUDE_ALIAS" "$SKIP_CODEX_ALIAS" "$SKIP_END" >> "$rc"
+        mkdir -p "$(dirname "$SKIP_FILE")" 2>/dev/null || true
+        touch "$SKIP_FILE"
+        _ensure_claude_fn
         echo "skip: on. Claude skips permissions; Codex bypasses approvals and sandboxing"
       fi
       echo "re-source: source $rc  (or open a new shell)"
       ;;
     off)
-      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
-        awk -v b="$SKIP_BEGIN" -v e="$SKIP_END" \
-          '$0==b{s=1;next} $0==e{s=0;next} !s' "$rc" > "$rc.tmp" && mv "$rc.tmp" "$rc"
-        echo "skip: off. re-source: source $rc (or new shell). in this shell: unalias claude codex"
+      if [ -f "$SKIP_FILE" ]; then
+        rm -f "$SKIP_FILE"
+        _cleanup_claude_fn
+        echo "skip: off. re-source: source $rc (or new shell). in this shell: unset -f claude codex 2>/dev/null"
       else
         echo "skip: already off"
       fi
       ;;
     status|"")
-      if [ -f "$rc" ] && grep -Fq "$SKIP_BEGIN" "$rc"; then
-        if grep -Fqx "$SKIP_CODEX_ALIAS" "$rc"; then
-          echo "skip: on for Claude and Codex ($rc)"
-        else
-          echo "skip: Claude only ($rc). run 'lc skip on' to add Codex"
-        fi
-      else
-        echo "skip: off"
-      fi
+      [ -f "$SKIP_FILE" ] && echo "skip: on" || echo "skip: off"
       echo "toggle: lc skip on|off"
       ;;
     *) die "unknown skip arg: $1 (expected: on, off, status)" ;;
+  esac
+}
+
+cmd_model() {
+  case "${1:-}" in
+    "")
+      if [ -f "$MODEL_FILE" ]; then
+        local cur; cur=$(cat "$MODEL_FILE" 2>/dev/null || echo "")
+        [ -n "$cur" ] && echo "model: $cur" || echo "model: default"
+      else
+        echo "model: default"
+      fi
+      echo "pin: lc model <name>    list: lc model list    clear: lc model off"
+      ;;
+    list)
+      local models=("sonnet" "opus" "haiku" "fable" "best" "sonnet[1m]" "opus[1m]" "fable[1m]" "opusplan")
+      local current="default"
+      [ -f "$MODEL_FILE" ] && current=$(cat "$MODEL_FILE" 2>/dev/null)
+      if [ -t 0 ] && [ -t 1 ]; then
+        local picked=""
+        if command -v fzf >/dev/null 2>&1; then
+          picked=$(printf '%s\n' "${models[@]}" | fzf --prompt="model> " --header="current: $current  (full IDs also work: claude-fable-5)")
+        else
+          echo "pick a model (current: $current):"
+          select m in "${models[@]}" "(cancel)"; do
+            [ "$m" = "(cancel)" ] || [ -z "$m" ] && break
+            picked="$m"; break
+          done
+        fi
+        if [ -n "$picked" ]; then
+          local rc; rc=$(rc_file) || die "unknown shell"
+          mkdir -p "$(dirname "$MODEL_FILE")" 2>/dev/null || true
+          printf '%s' "$picked" > "$MODEL_FILE"
+          _ensure_claude_fn
+          echo "model: $picked"
+          echo "re-source: source $rc  (or open a new shell)"
+        fi
+      else
+        echo "aliases:  sonnet  opus  haiku  fable  best"
+        echo "extended: sonnet[1m]  opus[1m]  fable[1m]  opusplan"
+        echo "full model IDs also accepted (e.g. claude-fable-5)"
+        echo "pinned:   $current"
+      fi
+      ;;
+    off|default|clear|none)
+      rm -f "$MODEL_FILE"
+      _cleanup_claude_fn
+      echo "model: default"
+      ;;
+    *)
+      local rc
+      rc=$(rc_file) || die "unknown shell ($SHELL). can't set model wrapper"
+      mkdir -p "$(dirname "$MODEL_FILE")" 2>/dev/null || true
+      printf '%s' "$1" > "$MODEL_FILE"
+      _ensure_claude_fn
+      echo "model: $1"
+      echo "re-source: source $rc  (or open a new shell)"
+      ;;
   esac
 }
 
@@ -906,12 +1005,13 @@ cmd_init() {
       cat <<'EOF'
 # lex-claude zsh completion. Add to ~/.zshrc: eval "$(lc init zsh)"
 _lc() {
-  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds install_cmds lang_cmds skip_cmds
+  local -a cmds awake_cmds init_cmds identity_cmds rules_cmds codex_cmds install_cmds model_cmds lang_cmds skip_cmds
   cmds=(
     'install:bootstrap clone + symlinks + hooks'
     'update:pull latest and redeploy'
     'identity:manage active identity'
     'rules:sync RULES.md across identities'
+    'model:pin default Claude model'
     'lang:set Claude reply language (en|fr|off)'
     'skip:toggle Claude and Codex bypass aliases'
     'github-login:wire gh + git auth (auto-detect, idempotent)'
@@ -928,8 +1028,9 @@ _lc() {
   install_cmds=('--yes:skip overwrite prompt' '--hops-only:install only the hopsdev binary')
   identity_cmds=('new:create a new identity')
   rules_cmds=('sync:re-inject RULES.md')
+  model_cmds=('list:interactive model picker' 'off:clear pin (back to default)' 'sonnet:Claude Sonnet' 'opus:Claude Opus' 'haiku:Claude Haiku' 'fable:Claude Fable')
   lang_cmds=('en:English' 'fr:French' 'off:clear (Claude picks)')
-  skip_cmds=('on:enable the alias' 'off:remove the alias' 'status:show current state')
+  skip_cmds=('on:enable' 'off:disable' 'status:show current state')
   local state
   _arguments -C '1: :->cmd' '*::arg:->args'
   case $state in
@@ -942,6 +1043,7 @@ _lc() {
         init)     _describe 'init target' init_cmds ;;
         identity) _describe 'identity action' identity_cmds ;;
         rules)    _describe 'rules action' rules_cmds ;;
+        model)    _describe 'model' model_cmds ;;
         lang)     _describe 'lang' lang_cmds ;;
         skip)     _describe 'skip' skip_cmds ;;
       esac
@@ -959,7 +1061,7 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules lang skip github-login awake codex init usage doctor version"
+  cmds="install update identity rules model lang skip github-login awake codex init usage doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
@@ -968,6 +1070,7 @@ _lc() {
     init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
     rules)         COMPREPLY=( $(compgen -W "sync" -- "$cur") ) ;;
+    model)         COMPREPLY=( $(compgen -W "list off sonnet opus haiku fable best" -- "$cur") ) ;;
     lang)          COMPREPLY=( $(compgen -W "en fr off" -- "$cur") ) ;;
     skip)          COMPREPLY=( $(compgen -W "on off status" -- "$cur") ) ;;
   esac
@@ -989,8 +1092,12 @@ Available subcommands (run with `lc <cmd>`):
 - `identity new --name <n> --empty`           create identity (no shared rules)
 - `rules sync`                                re-inject RULES.md into all identities (deployed install)
 - `rules sync --repo [DIR]`                   re-inject in a dev checkout (DIR, default $PWD), then commit there
+- `model`                                     show pinned model (or default)
+- `model list`                                interactive picker: choose from available models
+- `model <name>`                              pin a default model (opus, sonnet, fable, haiku, best, or full ID)
+- `model off`                                 clear pin, back to Claude Code default
 - `lang [en|fr|off]`                          set reply language (hook injects, statusline shows)
-- `skip on|off|status`                        toggle shell aliases for Claude and Codex permission bypass
+- `skip on|off|status`                        toggle shell wrapper for Claude and Codex permission bypass
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
 - `awake off`                                 stop the active assertion
@@ -1094,6 +1201,8 @@ cmd_doctor() {
   grep -q "lex-claude/digest" "$SETTINGS" 2>/dev/null && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
   grep -q "lex-claude/style" "$SETTINGS" 2>/dev/null && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
+  [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
+  [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
   [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
 }
 
@@ -1105,7 +1214,7 @@ cmd_usage() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1129,6 +1238,7 @@ case "${1:-}" in
   __deploy)     shift; deploy; echo "updated." ;;
   identity)     shift; cmd_identity "$@" ;;
   rules)        shift; cmd_rules "$@" ;;
+  model)        shift; cmd_model "$@" ;;
   lang)         shift; cmd_lang "$@" ;;
   skip)         shift; cmd_skip "$@" ;;
   github-login) shift; cmd_github_login "$@" ;;

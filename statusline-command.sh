@@ -37,6 +37,13 @@ if [ -f "$LEX_LANG_FILE" ]; then
     [ -n "$lang" ] && lang_info=$(printf " \033[2;35mlang:%s\033[0m" "$lang")
 fi
 
+model_info=""
+LEX_MODEL_FILE="$HOME/.claude/lex-claude/.model"
+if [ -f "$LEX_MODEL_FILE" ]; then
+    model=$(tr -d '[:space:]' < "$LEX_MODEL_FILE" 2>/dev/null)
+    [ -n "$model" ] && model_info=$(printf " \033[0;33m%s\033[0m" "$model")
+fi
+
 tok_info=""
 ctx_tokens=$(j '.context_window.used_tokens // empty')
 if [ -z "$ctx_tokens" ]; then
@@ -56,5 +63,5 @@ if [ -n "$ctx_tokens" ]; then
     fi
 fi
 
-printf "\033[1;32m➜\033[0m  \033[0;36m%s\033[0m%s%s%s%s" \
-    "$dir_name" "$git_info" "$ident_info" "$lang_info" "$tok_info"
+printf "\033[1;32m➜\033[0m  \033[0;36m%s\033[0m%s%s%s%s%s" \
+    "$dir_name" "$git_info" "$ident_info" "$model_info" "$lang_info" "$tok_info"
