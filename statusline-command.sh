@@ -34,14 +34,18 @@ lang_info=""
 LEX_LANG_FILE="$HOME/.claude/lex-claude/.lang"
 if [ -f "$LEX_LANG_FILE" ]; then
     lang=$(tr -d '[:space:]' < "$LEX_LANG_FILE" 2>/dev/null)
-    [ -n "$lang" ] && lang_info=$(printf " \033[2;35mlang:%s\033[0m" "$lang")
+    [ -n "$lang" ] && lang_info=$(printf " \033[2;35m%s\033[0m" "$lang")
 fi
 
 model_info=""
 LEX_MODEL_FILE="$HOME/.claude/lex-claude/.model"
 if [ -f "$LEX_MODEL_FILE" ]; then
     model=$(tr -d '[:space:]' < "$LEX_MODEL_FILE" 2>/dev/null)
-    [ -n "$model" ] && model_info=$(printf " \033[0;33m%s\033[0m" "$model")
+    if [ -n "$model" ]; then
+        model="${model#claude-}"
+        model=$(echo "$model" | sed 's/-[0-9]\{8\}//; s/\([0-9]\)-\([0-9]\)/\1.\2/')
+        model_info=$(printf " \033[0;33m%s\033[0m" "$model")
+    fi
 fi
 
 tok_info=""
