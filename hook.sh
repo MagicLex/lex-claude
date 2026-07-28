@@ -15,6 +15,11 @@ LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 # instruction at the bottom. Skip it; just name it so the ack can reference it.
 printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
 
+# Session état: live git + HANDOFF pointer (written by handoff.sh on every Stop).
+# Injected before the docs so a truncated bundle still carries the state.
+HANDOFF_SH="$SELF_DIR/handoff.sh"
+[ -f "$HANDOFF_SH" ] && bash "$HANDOFF_SH" start
+
 project_files="CLAUDE.md"
 if [ "$LEX_CLAUDE_CONTEXT_MODE" != "lite" ]; then
   project_files="$project_files docs/PHILOSOPHY.md docs/CONTEXT.md docs/PRINCIPLES.md docs/INVARIANTS.md docs/OPS.md docs/TODO.md"
@@ -44,10 +49,9 @@ if [ -f "$LEX_CLAUDE_LANG_FILE" ]; then
   esac
 fi
 
-if [ "$LEX_CLAUDE_CONTEXT_MODE" = "lite" ]; then
-  printf '\n---\nThe rules above are loaded in context (global CLAUDE.md + project CLAUDE.md + lex-claude commands). Acknowledge them to the user concisely. Repeat back two or three of the most relevant rules or principles so the user can see they landed, and list the documentation files that were just loaded above so the user knows what is in context. Do not say you will read them, you already have.\n'
-else
-  printf '\n---\nThe rules above are loaded in context (global CLAUDE.md + project CLAUDE.md + docs + lex-claude commands). Acknowledge them to the user concisely. Repeat back two or three of the most relevant rules or principles so the user can see they landed, and list the documentation files that were just loaded above so the user knows what is in context. Do not say you will read them, you already have.\n'
-fi
+# The old ack ("repeat 2-3 rules, list the docs") was ceremony: unverifiable,
+# burned the first turn, drifted ~60% of the time. The new one is an état
+# readout the user can falsify at a glance.
+printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: where the last session left off (HANDOFF + the live git line above) and the next slice you propose, 3 lines max. If a HANDOFF exists, Read it before any file modification (a PreToolUse gate enforces this).\n'
 
 sh -c 'date +%s > "$1"' sh "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true

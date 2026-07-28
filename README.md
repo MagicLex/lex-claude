@@ -109,6 +109,7 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_YES=1`: equivalent to `lc install --yes`; skips the destructive-overwrite prompt. Use only when you've read the warning above and accept it.
 - `LEX_CLAUDE_NO_USAGE=1`: turns off usage logging (`lc usage` keeps reading the existing log but records nothing new). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style hook.
+- `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the session état/handoff machinery (Stop/SessionEnd regeneration, PreToolUse gate, SessionStart état injection). `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
 
@@ -172,6 +173,24 @@ Rules injected once at SessionStart lose attention weight as the context grows. 
 
 When you edit `RULES.md`, keep `DIGEST.md` in step. It is a manual condensation, not generated.
 
+## Session flow (état + handoff)
+
+Session starts and ends used to be ceremonies the model had to perform, and it performed them ~40% of the time. Measured over 288 transcripts: 27% of file-writing sessions never committed, 82% of sessions ended with no closing signal at all, and 20% needed a manual "pousse tout" / "docs à jour?" from the user. The fix inverts the model: state is a harness-maintained invariant, not something a session has to remember to write down.
+
+Everything deterministic lives in `handoff.sh`, wired five ways:
+
+- **`Stop` hook** (`handoff.sh stop`): after every assistant turn, regenerates `~/.claude/lex-claude/state/<slug>/HANDOFF.md` (slug = cwd with `[/.]` → `-`) from the transcript + live git: branch/dirty/unpushed, files touched this session, commits ran, last 3 user asks, last assistant state, and an `UNCOMMITTED` flag when touched files are still dirty. Pure extraction, no LLM: the handoff cannot claim anything the transcript does not show. Kill the terminal anytime; the handoff is at most one turn stale.
+- **`SessionEnd` hook** (`handoff.sh end`): final regenerate + exit stamp (reason).
+- **`SessionStart`** (`hook.sh` calls `handoff.sh start`): injects the live git line, the HANDOFF pointer, the `UNCOMMITTED` flag, and the "Next" block from the last close. Injected before the docs so a truncated bundle still carries the state. The trailing instruction asks for an état readout (where we left off + proposed next slice, 3 lines), not a rules recitation.
+- **`PreToolUse` gate** (`handoff.sh gate`, matcher `Write|Edit|MultiEdit|NotebookEdit`): denies file modifications until the session has Read its HANDOFF. An injected instruction is probabilistic; a gate is not. First session in a directory (no HANDOFF yet) passes silently.
+- **`PostToolUse` mark** (`handoff.sh mark`, matcher `Read`): records the HANDOFF read, opens the gate. Markers are per-session, pruned after 7 days.
+
+The judgment layer is the `/lc-handoff` skill: commit/push check, docs-in-step check, and the model-written "Next" block (between `LC_NEXT` markers, which the deterministic regen preserves; same pattern as the RULES sync in identities). Voluntary: forgetting it costs nothing, the Stop hook already has the mechanical state.
+
+Identity-agnostic by construction: the flow lives at the harness level, so every identity gets it. `lc codex` renders the same état section through `hook.sh`, but Codex has no hooks, so no gate and no Stop regeneration there.
+
+Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises all five entry points instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` entries before re-adding, so unwiring is just deploying a version without them).
+
 ## Skills included
 
 All custom skills are prefixed `lc-` to avoid drowning in native skills or other plugins. Exception: `lc` itself, which is also the name of the `/lc` slash command.
@@ -182,6 +201,7 @@ All custom skills are prefixed `lc-` to avoid drowning in native skills or other
 - `lc-exploration`: explore an unfamiliar topic, codebase, or domain as a senior practitioner. Outputs five fixed sections (load-bearing concepts, common misconceptions, stable vs hype, where to dig, first concrete move).
 - `lc-docs-init`: scaffold the standard `docs/` layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) with empty headers. Skips existing files. Use to bootstrap a project.
 - `lc-docs-cleanup`: audit the project's docs for staleness, archives, dead refs, and duplicates. Reports a punch list, never edits.
+- `lc-handoff`: close a work slice properly. Commit/push check, docs-in-step check, then write the "Next" block into the project HANDOFF so the next session opens grounded. The judgment layer on top of the deterministic `handoff.sh` state.
 - `lc-voice`: write as Lex, in his voice. One DNA (rhythm, concrete over adjectives, self-deprecation, spaced-hyphen asides), four registers with a contextual sarcasm dial (personal blog: full; professional blog: wit, no snark; outreach: one light touch max; forms: zero). Includes the anti-LLM pass from his stylometric classifier. Ground truth is the voice corpus on his machine, not vendored here.
 
 ## Repo structure
@@ -193,6 +213,7 @@ lex-claude/
 ├── bin/lex-claude               ← CLI
 ├── bin/hopsdev                  ← hopsworks-api branch switcher (deployed alongside lc)
 ├── hook.sh                      ← SessionStart hook
+├── handoff.sh                   ← session état: Stop/SessionEnd regen, PreToolUse gate, start injection
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md

@@ -1,5 +1,6 @@
 # runtime artifacts written by hooks
 .last-hook
+state/
 usage.log
 .lang
 .digest/
