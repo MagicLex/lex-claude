@@ -4,7 +4,7 @@
 # committed, measured over 288 transcripts) and open without grounding. Fix: the
 # harness maintains the state deterministically; the model only does the judgment.
 #
-# One script, five entry points (wired by bin/lex-claude):
+# One script, six entry points (wired by bin/lex-claude):
 #   stop   Stop hook          regenerate HANDOFF.md from transcript + git after
 #                             every assistant turn. Kill the terminal anytime:
 #                             the handoff is at most one turn stale.
@@ -13,7 +13,10 @@
 #                             until HANDOFF.md was Read this session. An injected
 #                             instruction is probabilistic; a gate is not.
 #   mark   PostToolUse hook   (Read) record that HANDOFF.md was read → gate opens.
-#   start  called by hook.sh  inject live git état + HANDOFF pointer + Next block.
+#   rearm  called by hook.sh  drop this session's gate marker so /clear, /compact
+#                             and resume (which keep the session_id) re-force a
+#                             HANDOFF read instead of riding a stale marker.
+#   start  called by hook.sh  inject identity + live git état + HANDOFF pointer.
 #
 # State: ~/.claude/lex-claude/state/<slug>/HANDOFF.md   (slug = cwd, [/.] → -)
 #        ~/.claude/lex-claude/state/.sessions/<sid>     (gate markers, pruned 7d)
@@ -171,6 +174,24 @@ case "${1:-}" in
       permissionDecisionReason:("lex-claude handoff gate: this session has not read its handoff yet. Read " + $hp + " (Read tool), ground yourself on where the last session left off, then retry the modification.")}}'
     ;;
 
+  rearm)
+    # Called by hook.sh on every SessionStart. /clear and /compact keep the same
+    # session_id (same transcript, a boundary is appended), so the gate marker
+    # survives the context wipe and a post-clear edit would skip re-grounding.
+    # Drop the marker → the next mutation re-forces a HANDOFF read. On a fresh
+    # startup there is no marker, so this is a no-op.
+    input=$(cat)
+    session=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+    session=${session//[^A-Za-z0-9._-]/}
+    [ -n "$session" ] || exit 0
+    rm -f "$MARKER_DIR/$session" 2>/dev/null || true
+    src=$(printf '%s' "$input" | jq -r '.source // empty' 2>/dev/null)
+    case "$src" in
+      clear|compact|resume)
+        printf '\n(context %s — handoff gate re-armed; re-ground on the état below before any edit)\n' "$src" ;;
+    esac
+    ;;
+
   mark)
     input=$(cat)
     session=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
@@ -202,7 +223,7 @@ case "${1:-}" in
     ;;
 
   *)
-    echo "usage: handoff.sh stop|end|gate|mark|start" >&2
+    echo "usage: handoff.sh stop|end|gate|mark|rearm|start" >&2
     exit 1
     ;;
 esac

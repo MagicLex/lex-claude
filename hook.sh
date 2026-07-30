@@ -9,6 +9,13 @@
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 
+# SessionStart delivers {session_id, source, ...} on stdin. Capture it (tty guard
+# so a manual `bash hook.sh` in a terminal never blocks on cat). Used below to
+# re-arm the handoff gate: /clear and /compact keep the same session_id, so the
+# gate marker survives the context wipe unless we drop it here.
+HOOK_INPUT=""
+[ -t 0 ] || HOOK_INPUT=$(cat)
+
 # Global ~/.claude/CLAUDE.md is auto-loaded into context by Claude Code itself
 # (the `claudeMd` system-reminder). Re-dumping it here only inflated the hook
 # output past the truncation limit, which cut off the acknowledgement
@@ -18,6 +25,9 @@ printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loa
 # Session état: live git + HANDOFF pointer (written by handoff.sh on every Stop).
 # Injected before the docs so a truncated bundle still carries the state.
 HANDOFF_SH="$SELF_DIR/handoff.sh"
+# Re-arm the gate first (drops a stale marker on clear/compact/resume, emits a
+# reload note), then inject the état the reload should re-ground on.
+[ -f "$HANDOFF_SH" ] && printf '%s' "$HOOK_INPUT" | bash "$HANDOFF_SH" rearm
 [ -f "$HANDOFF_SH" ] && bash "$HANDOFF_SH" start
 
 project_files="CLAUDE.md"

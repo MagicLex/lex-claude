@@ -177,11 +177,12 @@ When you edit `RULES.md`, keep `DIGEST.md` in step. It is a manual condensation,
 
 Session starts and ends used to be ceremonies the model had to perform, and it performed them ~40% of the time. Measured over 288 transcripts: 27% of file-writing sessions never committed, 82% of sessions ended with no closing signal at all, and 20% needed a manual "pousse tout" / "docs à jour?" from the user. The fix inverts the model: state is a harness-maintained invariant, not something a session has to remember to write down.
 
-Everything deterministic lives in `handoff.sh`, wired five ways:
+Everything deterministic lives in `handoff.sh`, wired six ways:
 
 - **`Stop` hook** (`handoff.sh stop`): after every assistant turn, regenerates `~/.claude/lex-claude/state/<slug>/HANDOFF.md` (slug = cwd with `[/.]` → `-`) from the transcript + live git: branch/dirty/unpushed, files touched this session, commits ran, last 3 user asks, last assistant state, and an `UNCOMMITTED` flag when touched files are still dirty. Pure extraction, no LLM: the handoff cannot claim anything the transcript does not show. Kill the terminal anytime; the handoff is at most one turn stale.
 - **`SessionEnd` hook** (`handoff.sh end`): final regenerate + exit stamp (reason).
-- **`SessionStart`** (`hook.sh` calls `handoff.sh start`): injects the live git line, the HANDOFF pointer, the `UNCOMMITTED` flag, and the "Next" block from the last close. Injected before the docs so a truncated bundle still carries the state. The trailing instruction asks for an état readout (where we left off + proposed next slice, 3 lines), not a rules recitation.
+- **`SessionStart`** (`hook.sh` calls `handoff.sh start`): injects the active identity (resolved from the `~/.claude/CLAUDE.md` symlink, flagged if BROKEN/unmanaged/none), the live git line, the HANDOFF pointer, the `UNCOMMITTED` flag, and the "Next" block from the last close. Injected before the docs so a truncated bundle still carries the state. The trailing instruction asks for an état readout (identity + where we left off + proposed next slice, 3 lines), not a rules recitation.
+- **`SessionStart` rearm** (`hook.sh` calls `handoff.sh rearm`): `/clear`, `/compact` and resume keep the same `session_id`, so the gate marker survives the context wipe and a post-clear edit would ride a stale marker. This drops the marker on every SessionStart (no-op on a fresh startup) so the reload re-forces a HANDOFF read, and emits a one-line reload note. Grounding stays a hard mechanism, not a bet on re-injection landing.
 - **`PreToolUse` gate** (`handoff.sh gate`, matcher `Write|Edit|MultiEdit|NotebookEdit`): denies file modifications until the session has Read its HANDOFF. An injected instruction is probabilistic; a gate is not. First session in a directory (no HANDOFF yet) passes silently.
 - **`PostToolUse` mark** (`handoff.sh mark`, matcher `Read`): records the HANDOFF read, opens the gate. Markers are per-session, pruned after 7 days.
 
@@ -189,7 +190,7 @@ The judgment layer is the `/lc-handoff` skill: commit/push check, docs-in-step c
 
 Identity-agnostic by construction: the flow lives at the harness level, so every identity gets it. `lc codex` renders the same état section through `hook.sh`, but Codex has no hooks, so no gate and no Stop regeneration there.
 
-Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises all five entry points instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` entries before re-adding, so unwiring is just deploying a version without them).
+Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises all six entry points instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` entries before re-adding, so unwiring is just deploying a version without them).
 
 ## Skills included
 
