@@ -32,6 +32,28 @@ MARKER_DIR="$STATE_ROOT/.sessions"
 slug_of() { printf '%s' "$1" | sed -e 's#[/. ]#-#g'; }
 handoff_path() { printf '%s/%s/HANDOFF.md' "$STATE_ROOT" "$(slug_of "$1")"; }
 
+# Active identity as a fact, not an assertion: resolve the ~/.claude/CLAUDE.md
+# symlink (same source as the statusline) so the opener can verify who it is —
+# and so a broken/hand-written/mispointed link gets caught on turn one.
+identity_state() {
+  local link="$HOME/.claude/CLAUDE.md" tgt name
+  if [ -L "$link" ]; then
+    tgt=$(readlink "$link" 2>/dev/null)
+    name=$(basename "$tgt" .md 2>/dev/null)
+    if [ ! -e "$link" ]; then
+      echo "identity: ${name:-?} (BROKEN symlink → $tgt)"
+    elif [ -n "$name" ]; then
+      echo "identity: $name"
+    else
+      echo "identity: ? (unreadable symlink → $tgt)"
+    fi
+  elif [ -f "$link" ]; then
+    echo "identity: unmanaged (CLAUDE.md is a real file, not an lc symlink)"
+  else
+    echo "identity: none (no ~/.claude/CLAUDE.md)"
+  fi
+}
+
 git_state() {
   local d="$1"
   git -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "not a git repo"; return 0; }
@@ -166,7 +188,7 @@ case "${1:-}" in
   start)
     d="${CLAUDE_PROJECT_DIR:-$PWD}"
     hp=$(handoff_path "$d")
-    printf '\n===== état (live) =====\n%s\n' "$(git_state "$d")"
+    printf '\n===== état (live) =====\n%s\n%s\n' "$(identity_state)" "$(git_state "$d")"
     if [ -f "$hp" ]; then
       updated=$(sed -n 's/^updated: //p' "$hp" | head -1)
       printf 'HANDOFF: %s\n  (updated %s)\n' "$hp" "${updated:-?}"

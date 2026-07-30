@@ -52,6 +52,6 @@ fi
 # The old ack ("repeat 2-3 rules, list the docs") was ceremony: unverifiable,
 # burned the first turn, drifted ~60% of the time. The new one is an état
 # readout the user can falsify at a glance.
-printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: where the last session left off (HANDOFF + the live git line above) and the next slice you propose, 3 lines max. If a HANDOFF exists, Read it before any file modification (a PreToolUse gate enforces this).\n'
+printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none), where the last session left off (HANDOFF + the live git line), and the next slice you propose, 3 lines max. If a HANDOFF exists, Read it before any file modification (a PreToolUse gate enforces this).\n'
 
 sh -c 'date +%s > "$1"' sh "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true
