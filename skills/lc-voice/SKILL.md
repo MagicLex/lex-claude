@@ -44,6 +44,14 @@ Measured tells from Lex's stylometric classifier (github.com/MagicLex/llm-tell-a
 6. Kill boosters: "notably", "significantly", "clearly", "importantly".
 7. Grep for em dashes and "it's not X, it's Y". Rewrite both.
 
+**The reader's tells (qualitative).** The classifier catches the measurable ones; these are what an unforgiving human clocks - sourced from an HN thread tearing apart an LLM-written explainer (200ms.thenodebook.com). One tell and a sharp reader writes off the whole piece as unread machine output.
+
+- **The persistent mic drop.** The punchy this-lands sentence closing every paragraph. One landing beat in a whole piece is fine; every paragraph mic-dropping is the tell, and it reads as cheap RLHF prose (HN: "Claude sheepishly picking up the mic yet again"). This is the DNA's "no punchline cadence at every paragraph end", named for what it is.
+- **Tells, does not show. No interiority.** A passive explainer that narrates instead of showing the thing. Show the command and its response. Where an explainer reads better in second person ("you order a coffee, 211ms later you see Confirmed"), use "you", not a detached third person.
+- **Confident fake precision.** Numbers that sound authoritative but fail arithmetic (a 1ms finger-to-screen, "crossed North America six times"). Ties straight to evidence-over-eloquence: never a figure you did not verify.
+- **Absolutist claim the text contradicts.** "Violet marks the data, nothing else uses that color" while violet is everywhere. Never assert an invariant the artifact itself visibly breaks.
+- **The "N of X before Y" rhythm.** "Five milliseconds of bookkeeping before a single byte leaves the laptop." A telltale cadence - vary it or cut it.
+
 ## Rules of engagement
 
 - Never invent facts, dates, titles, or metrics. If a claim is not in the corpus or given by Lex, ask.
