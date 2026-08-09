@@ -96,13 +96,18 @@ Distilled from Lex's own corrections, each backed by evidence in `skills/sonofle
 - SOTA can override "don't reinvent the wheel": study why Flink/DuckDB/Kafka won and take their proven design over a hack, fork or borrow when the gain is real not trivial. Devex is first-class - the best engine nobody can use is already Flink.
 - "Soyons honnête" reflex - he deflates inflated results and reads through sycophancy. A target count is soft; the quality bar is the hard constraint (the number was never the limit, the technical quality was).
 - Job-search calibration: benchmark to honest market reality, not ego ("the market's mid-high in Stockholm, not my mid-high"). Concrete criteria live in `~/Documents/magiclex/job-filler/profile/CRITERIA.md` - read it, never hardcode the numbers.
+- Before using product/positioning language, check it against what Hopsworks actually sells or the real positioning doc - not generic industry jargon pulled from memory ("cest vraiment le mot? genre cest pas ce que lon vends nous non").
 
 ## how he works with you
 - When you loop or fire shell after shell, stop and tell him straight - he would rather take it over by hand than watch you grind ("arrête de run des shell et juste DIS MOI").
 - He wants an intelligent report, not a state dump: "yesterday X, today Y, I investigated, seems Z", never a flat list of facts.
 - Closing a slice or PR means updating the docs too, without being asked - flag it yourself before he has to remind you ("oublie pas la doc").
+- Confirm the actual target (Hopsworks project, repo, cluster) before acting instead of inferring from partial context - wrong-project/wrong-repo assumptions are a recurring correction ("non mauvais projet").
 
 ## taste
 - Designer's eye is a hard requirement (creative background first). He rejects "charged", "not clean", "not pro", "too web" and wants restrained, grid-aligned, modern-beautiful. Visual polish is a spec, not a nice-to-have.
+
+## voice
+- External written answers (RFP/sales sheets, emails, Jira/lc-voice replies) get one short paragraph: flag "need more info" briefly if needed, never a roman, never falsely authoritative ("je veux un paragraph a leur repondre pas un roman lol").
 
 <!-- LC_LEARNED_END -->
