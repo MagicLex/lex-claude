@@ -155,6 +155,9 @@ case "${1:-}" in
       endnote="ended: $reason at $(date '+%Y-%m-%d %H:%M %Z')"
     fi
     regen "$cwd" "$session" "$transcript" "$endnote"
+    # Persistent project memory is written by the live session via the /lc-handoff
+    # ritual (the piloted normal Claude, which has the full context and persona),
+    # not by a spawned model here. This hook only keeps the deterministic HANDOFF.
     ;;
 
   gate)
@@ -219,6 +222,13 @@ case "${1:-}" in
       printf 'Read the HANDOFF (Read tool) before any file modification (a PreToolUse gate enforces this).\n'
     else
       printf 'HANDOFF: none yet (first tracked session in this directory).\n'
+    fi
+    # Persistent project memory recall (live subset, salience-ranked). Fast, no
+    # LLM, no embeddings: pure ranking over the stored items. Fail-open.
+    MEM="$HOME/.claude/lex-claude/memory.py"
+    if [ "${LEX_CLAUDE_MEMORY_DISABLE:-}" != "1" ] && command -v python3 >/dev/null 2>&1 && [ -f "$MEM" ]; then
+      mem=$(python3 "$MEM" recall "$(slug_of "$d")" 2>/dev/null || true)
+      [ -n "$mem" ] && printf '\n%s\n' "$mem"
     fi
     ;;
 

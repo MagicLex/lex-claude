@@ -110,6 +110,7 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_NO_USAGE=1`: turns off usage logging (`lc usage` keeps reading the existing log but records nothing new). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style hook.
 - `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the session état/handoff machinery (Stop/SessionEnd regeneration, PreToolUse gate, SessionStart état injection). `LEX_CLAUDE_DISABLE=1` also stops it.
+- `LEX_CLAUDE_MEMORY_DISABLE=1`: turns off the persistent project memory (`memory.py` ingest at SessionEnd, recall at SessionStart). The rest of the handoff machinery keeps working. `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
 
@@ -192,6 +193,21 @@ Identity-agnostic by construction: the flow lives at the harness level, so every
 
 Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises all six entry points instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` entries before re-adding, so unwiring is just deploying a version without them).
 
+## Project memory (persistent across sessions)
+
+The `handoff.sh` state is pure extraction of the current session: touched files, last asks, last paragraph. It does not accumulate what mattered across sessions, never forgets, never supersedes stale state. `memory.py` adds a small per-project memory of durable items (decisions, facts, open threads, preferences) under three rules, ported from the `elastic-substrat` probe:
+
+1. **Forget by use.** Items not reaffirmed decay and are pruned (bounded store, self-cleaning), so old noise does not accumulate.
+2. **Write-time supersession.** When a session makes a stored item outdated (a decision reversed, a value changed, a thread closed), it is soft-deleted, not destroyed. Soft, so a wrong supersession is recoverable: the item is restored if a later session reaffirms it.
+3. **Recall by salience.** Session start injects the live subset (salience-ranked), not the whole file.
+
+The judgment (what is durable, what is superseded) is written by the NORMAL Claude session, piloted by the `/lc-handoff` close ritual, not by a spawned model. The live assistant already holds the full session context and persona, so its extraction beats a cold side-process, and there is no second model to pay for and no recursion risk. `memory.py` does only the deterministic bookkeeping and never calls a model. Both touchpoints fail-open (any error leaves the store and the handoff untouched):
+
+- **Write (`/lc-handoff` skill, step 3):** the live session runs `memory.py list <slug>` to see the current items with their ids, then pipes a JSON delta to `memory.py apply <slug>`: `new` durable items, `supersede` the ids this session made outdated, `reaffirm` the ids confirmed still true. Voluntary, same nature as the "Next" block: forgetting to close costs the memory that session's delta, nothing breaks.
+- **Recall (`handoff.sh start`, SessionStart):** appends `memory.py recall <slug>`, a fast pure-ranking read (no model, no embeddings) of the live items, grouped by type.
+
+State: `~/.claude/lex-claude/state/<slug>/memory.jsonl` (one JSON item per line, alongside `HANDOFF.md`). Stdlib only, no model spawned, no embeddings. Kill switch: `LEX_CLAUDE_MEMORY_DISABLE=1` (and `LEX_CLAUDE_DISABLE=1` also stops it). The design and its validation (why forget-by-use plus recoverable supersession beats keep-all and LRU, and why the read-time variant failed) live in `~/Documents/magiclex/elastic-substrat/HANDOFF.md`.
+
 ## Skills included
 
 All custom skills are prefixed `lc-` to avoid drowning in native skills or other plugins. Exception: `lc` itself, which is also the name of the `/lc` slash command.
@@ -215,6 +231,7 @@ lex-claude/
 ├── bin/hopsdev                  ← hopsworks-api branch switcher (deployed alongside lc)
 ├── hook.sh                      ← SessionStart hook
 ├── handoff.sh                   ← session état: Stop/SessionEnd regen, PreToolUse gate, start injection
+├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md

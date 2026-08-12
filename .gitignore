@@ -1,6 +1,9 @@
 # runtime artifacts written by hooks
 .last-hook
 state/
+__pycache__/
+.model
+.skip
 usage.log
 .lang
 .digest/
