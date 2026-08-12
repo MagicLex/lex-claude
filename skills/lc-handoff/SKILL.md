@@ -34,9 +34,12 @@ Steps, in order:
        (decisions made, stable facts, open threads/next steps, preferences), not
        transient chatter.
      - `supersede`: the `id`s of listed items this session made outdated (a
-       decision reversed, a value changed, a thread closed). Be conservative:
-       only when genuinely replaced. Soft-delete is recoverable, but do not
-       supersede on a guess.
+       decision reversed, a value changed, a thread closed). Apply the strict
+       test, all three parts: same entity, same attribute, and this session
+       established a DIFFERENT value for it. Sharing a topic or wording is not
+       enough; when unsure, do not supersede (measured on real streams: the
+       strict test halves wrong supersessions vs "seems outdated"). Soft-delete
+       is recoverable, but do not supersede on a guess.
      - `reaffirm`: the `id`s of listed items this session confirmed still true.
    - Example:
      ```
