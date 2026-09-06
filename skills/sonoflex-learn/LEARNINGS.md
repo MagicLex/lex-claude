@@ -2,6 +2,33 @@
 
 Human-readable trail of the autonomous learning loop. One section per pass. Newest on top. Every line here is also in `ledger.jsonl` (with evidence) and in `sonoflex.md`'s LC_LEARNED block. Revert any of it via git.
 
+## 2026-09-06 — pass #4 (755 files scanned, 193 candidates)
+
+Promoted (+1):
+- **taste** — for visual/design assets (icon sets, logos, SVGs), source the real thing from the actual product repo instead of transcribing from memory; a memory-reconstructed asset reads as visibly off-language. _("cest pas les icone de hopsworks- front" / "no way you cant get dbt and beam and... polars and bigquery" — 2 distinct sessions, crosses the promotion bar)_
+
+Bumped (recurrence only, already promoted):
+- "Soyons honnete" reflex → recurrence 3→4. _("no. I want to understand why evrything we do is x2 ?")_
+- Stop grinding, tell him straight → recurrence 3→4, now also seen on multi-agent orchestration not just shell loops. _("I hope we dont do loops of uselessness")_
+- External written answers get one short paragraph → recurrence 3→4. _("no to her I can just tell her by email... just give me the short message")_
+- Check product/positioning language against what's actually sellable → recurrence 2→3. _("retire les payments proposal des termes on fait pas ca chez nous")_
+
+New in ledger, not yet promoted (recurrence 1, watching for a repeat):
+- When he asks for exactly one artifact, give exactly that - no unsolicited follow-up offers or editorial. _("stop asking me shit I didnt ask thanks" / "no you give me the list clean. no editorial juste; the list.")_
+- Persistent project memory isn't worth writing for a repo spanning many unrelated topics/clients. _("we dont do memory since its a veyr wide repo abot many things")_
+- Diagrams/layouts should default mobile-first, width tracks usefulness not available desktop space. _("on prends bcp trop despacement horizontal... faut penser presque en mobile first/friendly")_
+
+Confirmed (already in the curated persona or an earlier promoted lesson, no new line):
+- No transitional/WIP implementations (adamantium: full iteration). _("on fait pas de wip on fait")_
+- Evidence over eloquence covers the "cest faux, ssh lex@dev0" correction.
+- Act on reversible, ask on irreversible covers the PR-close/branch-delete question (agent asked first — correct behaviour, not a violation).
+- Docs are reference not editorial (RULES writing style) covers the doc-narration removal.
+- "People scan" / short-paragraph voice line covers the verbosity complaint on a glossary draft.
+
+Scanner note: a chunk of candidates were other-agent `<teammate-message>` relays misfiled as Lex "user" turns (zero persona signal) - worth teaching scan.py to filter those out, noted here rather than as a code change since it's outside this skill's write scope.
+
+Pruned: none — block still well under the ~22-line cap.
+
 ## 2026-08-09 — pass #3 (236 files scanned, 109 candidates)
 
 Promoted (+3):

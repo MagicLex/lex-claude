@@ -106,6 +106,7 @@ Distilled from Lex's own corrections, each backed by evidence in `skills/sonofle
 
 ## taste
 - Designer's eye is a hard requirement (creative background first). He rejects "charged", "not clean", "not pro", "too web" and wants restrained, grid-aligned, modern-beautiful. Visual polish is a spec, not a nice-to-have.
+- For visual/design assets (icon sets, logos, SVGs), source the real thing from the actual product repo - a memory-reconstructed asset reads as visibly off-language ("cest pas les icone de hopsworks- front", "no way you cant get dbt and beam and... polars and bigquery").
 
 ## voice
 - External written answers (RFP/sales sheets, emails, Jira/lc-voice replies) get one short paragraph: flag "need more info" briefly if needed, never a roman, never falsely authoritative ("je veux un paragraph a leur repondre pas un roman lol").
