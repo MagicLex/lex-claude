@@ -2,6 +2,26 @@
 
 Human-readable trail of the autonomous learning loop. One section per pass. Newest on top. Every line here is also in `ledger.jsonl` (with evidence) and in `sonoflex.md`'s LC_LEARNED block. Revert any of it via git.
 
+## 2026-09-13 — pass #5 (58 files scanned, 43 candidates)
+
+Promoted: none this pass.
+
+Bumped (recurrence only, already promoted):
+- Check product/positioning language (or a claimed support commitment) against what's actually true, not assumed → recurrence 3→4, now also seen on a customer-facing SLA claim, not just marketing copy. _("whats the 24 hr business hour response we dont do such shit do we DLD")_
+
+New in ledger, not yet promoted (recurrence 1, watching for a repeat):
+- Pushes back when a demo/dev workaround (laptop tunnel, manual step) is framed as the shipped path - asks what a real end user actually hits. _("well ok cute but thats not the path for the user that just landed on our page? or is it?")_
+
+Confirmed (already in the curated persona or an earlier promoted lesson, no new line):
+- "Read the context before touching anything" (Adamantium) covers "cant you read the doc or hopsworks-helm or whagtever instead of guessing?"
+- "Small, incremental changes" (Core) covers "no but like edit one line in place you cant do that can you" (pushback on a full re-copy instead of a targeted edit).
+- Short-paragraph / no-roman voice line covers "dont do a novel" on a context-switch recap request.
+- Stop-grinding-tell-him-straight (already promoted) covers "no lets recap the flow; i will retest everything myself. tell me what to do." - same session already on file for this lesson, not a new distinct occurrence.
+
+Scanner note: most of the 43 candidates were either music-production one-off feedback (vibe-audio sessions), a single UI task instruction (zomato logo), or other-agent `<teammate-message>` relays with zero persona signal - same noise pattern flagged in pass #4, scan.py still doesn't filter it.
+
+Pruned: none - block still well under the ~22-line cap, no line contradicted or stale.
+
 ## 2026-09-06 — pass #4 (755 files scanned, 193 candidates)
 
 Promoted (+1):
