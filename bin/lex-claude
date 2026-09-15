@@ -307,6 +307,7 @@ deploy() {
   fi
 
   ensure_path_in_rc || true
+  _ensure_claude_fn || true   # route `claude` → `lc claude` (cold-start check) always
 
   wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
   wire_statusline || echo "note: statusline wiring skipped. run 'lc doctor' to investigate."
@@ -547,6 +548,7 @@ SKIP_BEGIN_OLD='# >>> lex-claude skip >>>'
 SKIP_END_OLD='# <<< lex-claude skip <<<'
 FN_BEGIN='# >>> lex-claude claude >>>'
 FN_END='# <<< lex-claude claude <<<'
+FN_MARK='lex-claude claude router v2'   # bump when _claude_fn_block changes → old blocks get replaced
 
 rc_file() {
   case "$(basename "${SHELL:-}")" in
@@ -564,11 +566,11 @@ _strip_rc_block() {
 
 _claude_fn_block() {
   cat <<'BLOCK'
+# lex-claude claude router v2 — routes `claude` through `lc claude` so every
+# interactive launch gets the cold-start identity/rules check. Model and skip
+# flags are applied by `lc claude` itself. `command claude` bypasses this.
 claude() {
-  local _f=()
-  [ -f "$HOME/.claude/lex-claude/.model" ] && _f+=(--model "$(cat "$HOME/.claude/lex-claude/.model")")
-  [ -f "$HOME/.claude/lex-claude/.skip" ] && _f+=(--dangerously-skip-permissions)
-  command claude "${_f[@]}" "$@"
+  command lex-claude claude "$@"
 }
 codex() {
   local _f=()
@@ -586,15 +588,13 @@ _ensure_claude_fn() {
     [ ! -f "$SKIP_FILE" ] && { mkdir -p "$(dirname "$SKIP_FILE")" 2>/dev/null || true; touch "$SKIP_FILE"; }
     _strip_rc_block "$rc" "$SKIP_BEGIN_OLD" "$SKIP_END_OLD"
   fi
-  # Function block already present? Done.
-  [ -f "$rc" ] && grep -Fq "$FN_BEGIN" "$rc" && return 0
+  # Current version present? Done. A stale (pre-router) block gets replaced so an
+  # existing install picks up the routing on the next `lc update`.
+  if [ -f "$rc" ] && grep -Fq "$FN_BEGIN" "$rc"; then
+    grep -Fq "$FN_MARK" "$rc" && return 0
+    _strip_rc_block "$rc" "$FN_BEGIN" "$FN_END"
+  fi
   { printf '\n%s\n' "$FN_BEGIN"; _claude_fn_block; printf '%s\n' "$FN_END"; } >> "$rc"
-}
-
-_cleanup_claude_fn() {
-  [ -f "$SKIP_FILE" ] || [ -f "$MODEL_FILE" ] && return 0
-  local rc; rc=$(rc_file) || return 0
-  _strip_rc_block "$rc" "$FN_BEGIN" "$FN_END"
 }
 
 _model_list() {
@@ -641,8 +641,7 @@ cmd_skip() {
     off)
       if [ -f "$SKIP_FILE" ]; then
         rm -f "$SKIP_FILE"
-        _cleanup_claude_fn
-        echo "skip: off. re-source: source $rc (or new shell). in this shell: unset -f claude codex 2>/dev/null"
+        echo "skip: off (takes effect on the next claude/codex launch)"
       else
         echo "skip: already off"
       fi
@@ -699,8 +698,7 @@ cmd_model() {
       ;;
     off|default|clear|none)
       rm -f "$MODEL_FILE"
-      _cleanup_claude_fn
-      echo "model: default"
+      echo "model: default (takes effect on the next claude launch)"
       ;;
     *)
       local rc
@@ -1205,6 +1203,17 @@ EOF
   esac
 }
 
+# True if any hook command in settings.json matches the substring. Uses jq so it
+# survives JSON that escapes forward slashes (lex-claude\/usage.sh), which a plain
+# grep on the raw file misses. Falls back to grep (both forms) if jq is absent.
+_hook_wired() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -e --arg n "$1" '[.. | .command? // empty | select(type=="string" and (contains($n)))] | length > 0' "$SETTINGS" >/dev/null 2>&1
+  else
+    grep -q "$1" "$SETTINGS" 2>/dev/null || grep -q "${1//\//\\/}" "$SETTINGS" 2>/dev/null
+  fi
+}
+
 cmd_doctor() {
   local ok=1
   if [ -d "$INSTALL_DIR/.git" ]; then
@@ -1231,7 +1240,7 @@ cmd_doctor() {
     [ -L "$CLAUDE_DIR/skills/$name" ] && echo "ok    skill $name" || { echo "fail  skill $name"; ok=0; }
     [ -L "$CODEX_SKILLS_DIR/$name" ] && echo "ok    codex skill $name" || { echo "fail  codex skill $name"; ok=0; }
   done
-  grep -q "lex-claude/hook" "$SETTINGS" 2>/dev/null && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
+  _hook_wired "lex-claude/hook" && echo "ok    hook wired" || { echo "fail  hook not wired"; ok=0; }
   if [ -L "$CLAUDE_DIR/statusline-command.sh" ] && [ -e "$CLAUDE_DIR/statusline-command.sh" ]; then
     echo "ok    statusline → $(readlink "$CLAUDE_DIR/statusline-command.sh")"
   else
@@ -1246,10 +1255,10 @@ cmd_doctor() {
     echo "warn  hopsdev not symlinked (run 'lc update' or 'lc install --hops-only')"
   fi
   ensure_path_in_rc || ok=0
-  grep -q "lex-claude/usage" "$SETTINGS" 2>/dev/null && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
-  grep -q "lex-claude/digest" "$SETTINGS" 2>/dev/null && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
-  grep -q "lex-claude/style" "$SETTINGS" 2>/dev/null && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
-  grep -q "lex-claude/succeed" "$SETTINGS" 2>/dev/null && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
+  _hook_wired "lex-claude/usage" && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
+  _hook_wired "lex-claude/digest" && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
+  _hook_wired "lex-claude/style" && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
+  _hook_wired "lex-claude/succeed" && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
   { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
@@ -1288,6 +1297,13 @@ cmd_claude() {
   local _f=()
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
+
+  # Headless one-shot (-p/--print) is a script call, not a seat to sit in. Pass it
+  # straight through (with flags), no cold-start turn, no --resume.
+  local a
+  for a in "$@"; do
+    case "$a" in -p|--print) exec command claude ${_f[@]+"${_f[@]}"} "$@" ;; esac
+  done
 
   local master="$SELF_DIR/master.sh"; [ -x "$master" ] || master="$INSTALL_DIR/master.sh"
   if [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] || [ "${LEX_CLAUDE_COLDSTART_DISABLE:-}" = "1" ] \
