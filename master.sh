@@ -61,11 +61,17 @@ if [ "$phase" = "identity" ]; then
 You are a verifier deciding whether the SUBJECT has LOADED and INTERNALISED the
 target identity and its non-negotiable rules. This is a load check, not an exam.
 
+The subject must DEMONSTRATE the content, not merely claim it. Only a session that
+actually loaded the identity can reproduce its specific name and specific rules
+that match the ground truth below. A confident assertion is not evidence.
+
 PASS if: the subject names the identity correctly (case-insensitive, minor
-spelling of the name is fine) AND shows awareness of several of the non-negotiable
-rules in its own words (it need not recite them all).
-FAIL if: it is a generic assistant answer, names the wrong identity, or shows no
-awareness of the specific rules.
+spelling of the name is fine) AND states several of the non-negotiable rules in
+its own words, matching the ground truth (it need not recite them all).
+FAIL if: it is a generic assistant answer; names the wrong identity; only ASSERTS
+that it knows or loaded the rules without stating specific ones (e.g. "I know my
+rules", "identity loaded", "I follow all my non-negotiables"); or states rules
+that do not match the ground truth.
 
 Respond with ONLY a JSON object, no prose, no markdown fences:
 {"pass": true|false, "reason": "<one short line>"}

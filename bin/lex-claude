@@ -1277,10 +1277,12 @@ _coldstart_heal() {
 }
 
 # lc claude — cold-start supervisor. A hook cannot restart its own session, so
-# the launcher owns the gate: verify a fresh session actually loads identity +
-# rules (cheap symlink floor, then a behavioural probe judged by the master)
-# BEFORE handing over the seat. Reroll bounded, self-heal a drifted symlink,
-# never leave the user without a shell. Preserves the model/skip flags.
+# the launcher owns the gate, and it verifies the REAL session, not a proxy: it
+# runs the identity/rules self-report as turn 1 of a fresh persisted session, has
+# the master judge THAT turn, rerolls a fresh session on failure (bounded), and
+# hands over the session that PASSED via --resume (your work continues as turn
+# 2+). Cheap symlink floor + self-heal first; never leaves the user without a
+# shell. Preserves the model/skip flags.
 # Opt out: LEX_CLAUDE_COLDSTART_DISABLE=1 (or LEX_CLAUDE_DISABLE=1).
 cmd_claude() {
   local _f=()
@@ -1295,28 +1297,36 @@ cmd_claude() {
 
   local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
   local link="$CLAUDE_DIR/CLAUDE.md"
+  local pdir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's#/#-#g')"
   local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-preflight.$$"
   local prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
 
-  local attempt=1
+  local attempt=1 uuid
   while [ "$attempt" -le "$max" ]; do
+    # Cheap floor first: a broken identity symlink means nothing will load. Heal
+    # and retry before spending a turn.
     if [ ! -L "$link" ] || [ ! -e "$link" ]; then
       echo "lc: identity symlink missing/broken ($link) — attempt $attempt/$max." >&2
-      _coldstart_heal "$link"
-    else
-      # set -e + pipefail: a failed probe must reroll, not abort the launcher.
-      command claude ${_f[@]+"${_f[@]}"} -p --output-format json --no-session-persistence "$prompt" 2>/dev/null \
-        | jq -r '.result // empty' > "$tmp" || true
-      if "$master" verify --answer "$tmp" --phase identity >/dev/null 2>&1; then
-        rm -f "$tmp"; exec command claude ${_f[@]+"${_f[@]}"} "$@"
-      fi
-      echo "lc: cold-start check failed (attempt $attempt/$max)." >&2
-      _coldstart_heal "$link"
+      _coldstart_heal "$link"; attempt=$((attempt+1)); continue
     fi
+    uuid=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
+    [ -n "$uuid" ] || { echo "lc: no uuid source; launching raw." >&2; rm -f "$tmp"; exec command claude ${_f[@]+"${_f[@]}"} "$@"; }
+    # Verify the REAL session: run the identity self-report as turn 1 of the
+    # persisted session, judge THAT turn. set -e/pipefail: a failed turn rerolls.
+    command claude ${_f[@]+"${_f[@]}"} -p --output-format json --session-id "$uuid" "$prompt" 2>/dev/null \
+      | jq -r '.result // empty' > "$tmp" || true
+    if "$master" verify --answer "$tmp" --phase identity >/dev/null 2>&1; then
+      rm -f "$tmp"
+      # Hand over the verified session itself; your work continues as turn 2+.
+      exec command claude ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
+    fi
+    echo "lc: cold-start check failed (attempt $attempt/$max) — rerolling a fresh session." >&2
+    rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true    # discard the rejected session
+    _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
   rm -f "$tmp"
-  echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway." >&2
+  echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
   exec command claude ${_f[@]+"${_f[@]}"} "$@"
 }
 
