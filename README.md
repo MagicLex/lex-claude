@@ -109,8 +109,10 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_YES=1`: equivalent to `lc install --yes`; skips the destructive-overwrite prompt. Use only when you've read the warning above and accept it.
 - `LEX_CLAUDE_NO_USAGE=1`: turns off usage logging (`lc usage` keeps reading the existing log but records nothing new). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style hook.
-- `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the session état/handoff machinery (Stop/SessionEnd regeneration, PreToolUse gate, SessionStart état injection). `LEX_CLAUDE_DISABLE=1` also stops it.
-- `LEX_CLAUDE_MEMORY_DISABLE=1`: turns off the persistent project memory (`memory.py` ingest at SessionEnd, recall at SessionStart). The rest of the handoff machinery keeps working. `LEX_CLAUDE_DISABLE=1` also stops it.
+- `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the token-triggered succession (the `Stop` hook fires nothing near the limit). `LEX_CLAUDE_DISABLE=1` also stops it.
+- `LEX_CLAUDE_COLDSTART_DISABLE=1`: turns off the `lc claude` pre-flight; the launcher hands over the seat without verifying identity/rules load first.
+- `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000): context-token threshold at which succession fires. `LEX_CLAUDE_SUCCESSION_MAX` (default 3): reroll cap. `LEX_CLAUDE_MASTER_MODEL` (default haiku): the drift-judge model.
+- `LEX_CLAUDE_MEMORY_DISABLE=1`: turns off persistent project memory (`memory.py` recall at SessionStart; write is piloted via `/lc-close` and `/lc-succession`). `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
 
@@ -174,39 +176,36 @@ Rules injected once at SessionStart lose attention weight as the context grows. 
 
 When you edit `RULES.md`, keep `DIGEST.md` in step. It is a manual condensation, not generated.
 
-## Session flow (état + handoff)
+## Session flow (verify, don't persist)
 
-Session starts and ends used to be ceremonies the model had to perform, and it performed them ~40% of the time. Measured over 288 transcripts: 27% of file-writing sessions never committed, 82% of sessions ended with no closing signal at all, and 20% needed a manual "pousse tout" / "docs à jour?" from the user. The fix inverts the model: state is a harness-maintained invariant, not something a session has to remember to write down.
+The old model persisted session state to a per-project `HANDOFF.md` and gated edits until the file was read. It drifted: the model-written "Next" block rotted between sessions, and the gate never verified the thing that actually matters, that a session loaded its identity and rules at all. The new model verifies live and hands work to a fresh, checked successor instead of writing state to a file.
 
-Everything deterministic lives in `handoff.sh`, wired six ways:
+Two things replace the old machinery: a **master** drift authority and **succession**.
 
-- **`Stop` hook** (`handoff.sh stop`): after every assistant turn, regenerates `~/.claude/lex-claude/state/<slug>/HANDOFF.md` (slug = cwd with `[/.]` → `-`) from the transcript + live git: branch/dirty/unpushed, files touched this session, commits ran, last 3 user asks, last assistant state, and an `UNCOMMITTED` flag when touched files are still dirty. Pure extraction, no LLM: the handoff cannot claim anything the transcript does not show. Kill the terminal anytime; the handoff is at most one turn stale.
-- **`SessionEnd` hook** (`handoff.sh end`): final regenerate + exit stamp (reason).
-- **`SessionStart`** (`hook.sh` calls `handoff.sh start`): injects the active identity (resolved from the `~/.claude/CLAUDE.md` symlink, flagged if BROKEN/unmanaged/none), the live git line, the HANDOFF pointer, the `UNCOMMITTED` flag, and the "Next" block from the last close. Injected before the docs so a truncated bundle still carries the state. The trailing instruction asks for an état readout (identity + where we left off + proposed next slice, 3 lines), not a rules recitation.
-- **`SessionStart` rearm** (`hook.sh` calls `handoff.sh rearm`): `/clear`, `/compact` and resume keep the same `session_id`, so the gate marker survives the context wipe and a post-clear edit would ride a stale marker. This drops the marker on every SessionStart (no-op on a fresh startup) so the reload re-forces a HANDOFF read, and emits a one-line reload note. Grounding stays a hard mechanism, not a bet on re-injection landing.
-- **`PreToolUse` gate** (`handoff.sh gate`, matcher `Write|Edit|MultiEdit|NotebookEdit`): denies file modifications until the session has Read its HANDOFF. An injected instruction is probabilistic; a gate is not. First session in a directory (no HANDOFF yet) passes silently.
-- **`PostToolUse` mark** (`handoff.sh mark`, matcher `Read`): records the HANDOFF read, opens the gate. Markers are per-session, pruned after 7 days.
+- **Master** (`master.sh`): a neutral judge spawned on demand (`claude -p`, with the identity hook disabled so it does not judge itself). It reads a subject session's self-report and rules whether the subject loaded and internalised the identity + rules (phase `identity`) or understood the project as briefed (phase `project`). Ground truth is the `~/.claude/CLAUDE.md` symlink name plus `DIGEST.md`. Verdict is strict JSON; anything unparseable fails closed.
+- **Cold start** (`lc claude`): a hook cannot restart its own session, so the launcher owns the gate. Before handing over the seat it pre-flights a fresh headless probe against the master. On failure it self-heals a drifted identity symlink and rerolls, bounded; if it never passes it launches anyway with a loud warning, never leaving you without a shell. Opt out with `LEX_CLAUDE_COLDSTART_DISABLE=1`. Alias `claude` to `lc claude` to make it your default launcher.
+- **Succession** (`succeed.sh` + `/lc-succession`): the `Stop` hook (`succeed.sh check`) computes context size from the transcript's last-turn usage and, past `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000), blocks once to trigger the `lc-succession` skill. The model composes a live briefing from its own context (not a file), then `succeed.sh run` spawns a fresh successor, has the master verify identity then project understanding, and rerolls a fresh one on any failure (slot machine, never sway), bounded by `LEX_CLAUDE_SUCCESSION_MAX` (default 3). On pass it prints a `claude --resume <id>` line and stands down; the successor is a persisted, resumable session that survives the old one closing. On exhaustion it falls back to native compaction and says so.
 
-The judgment layer is the `/lc-handoff` skill: commit/push check, docs-in-step check, and the model-written "Next" block (between `LC_NEXT` markers, which the deterministic regen preserves; same pattern as the RULES sync in identities). Voluntary: forgetting it costs nothing, the Stop hook already has the mechanical state.
+The `SessionStart` readout (`etat.sh`) still injects the active identity (flagged if BROKEN/unmanaged/none) and the live git line. That is the état the opener reports and the master verifies against. No persisted handoff, no gate, no "Next" block.
 
-Identity-agnostic by construction: the flow lives at the harness level, so every identity gets it. `lc codex` renders the same état section through `hook.sh`, but Codex has no hooks, so no gate and no Stop regeneration there.
+Identity-agnostic by construction: the flow lives at the harness level, so every identity gets it. Codex has no hooks, so no succession there.
 
-Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises all six entry points instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` entries before re-adding, so unwiring is just deploying a version without them).
+Rollback: `LEX_CLAUDE_HANDOFF_DISABLE=1` neutralises the trigger and succession instantly; `git revert` + `lc update` removes the wiring (the jq patch strips `lex-claude/handoff` and `lex-claude/succeed` entries before re-adding, so unwiring is just deploying a version without them).
 
 ## Project memory (persistent across sessions)
 
-The `handoff.sh` state is pure extraction of the current session: touched files, last asks, last paragraph. It does not accumulate what mattered across sessions, never forgets, never supersedes stale state. `memory.py` adds a small per-project memory of durable items (decisions, facts, open threads, preferences) under three rules, ported from the `elastic-substrat` probe:
+The `etat.sh` SessionStart readout is pure live state (active identity + git); it does not accumulate what mattered across sessions. `memory.py` adds a small, deliberately narrow per-project memory of durable, repo-specific items (decisions, facts, open threads, preferences) under three rules, ported from the `elastic-substrat` probe. Narrow on purpose: no environment or machine state (paths, live branch, cluster/server state, transient config), which goes stale silently and is worse than no memory.
 
 1. **Forget by use.** Items not reaffirmed decay and are pruned (bounded store, self-cleaning), so old noise does not accumulate.
 2. **Write-time supersession.** When a session makes a stored item outdated (a decision reversed, a value changed, a thread closed), it is soft-deleted, not destroyed. Soft, so a wrong supersession is recoverable: the item is restored if a later session reaffirms it.
 3. **Recall by salience.** Session start injects the live subset (salience-ranked), not the whole file.
 
-The judgment (what is durable, what is superseded) is written by the NORMAL Claude session, piloted by the `/lc-handoff` close ritual, not by a spawned model. The live assistant already holds the full session context and persona, so its extraction beats a cold side-process, and there is no second model to pay for and no recursion risk. `memory.py` does only the deterministic bookkeeping and never calls a model. Both touchpoints fail-open (any error leaves the store and the handoff untouched):
+The judgment (what is durable, what is superseded) is written by the live Claude session, piloted by the `/lc-close` and `/lc-succession` rituals, not by a spawned model. The live assistant already holds the full session context and persona, so its extraction beats a cold side-process, and there is no second model to pay for and no recursion risk. `memory.py` does only the deterministic bookkeeping and never calls a model. Both touchpoints fail-open (any error leaves the store and the session untouched):
 
-- **Write (`/lc-handoff` skill, step 3):** the live session runs `memory.py list <slug>` to see the current items with their ids, then pipes a JSON delta to `memory.py apply <slug>`: `new` durable items, `supersede` the ids this session made outdated, `reaffirm` the ids confirmed still true. Voluntary, same nature as the "Next" block: forgetting to close costs the memory that session's delta, nothing breaks.
-- **Recall (`handoff.sh start`, SessionStart):** appends `memory.py recall <slug>`, a fast pure-ranking read (no model, no embeddings) of the live items, grouped by type.
+- **Write (`/lc-close` and `/lc-succession` skills):** the live session runs `memory.py list <slug>` to see the current items with their ids, then pipes a JSON delta to `memory.py apply <slug>`: `new` durable items, `supersede` the ids this session made outdated, `reaffirm` the ids confirmed still true. Voluntary: forgetting to close costs that session's delta, nothing breaks. Kept narrow and repo-specific by the skills' guidance, never environment/machine state.
+- **Recall (`etat.sh`, SessionStart):** appends `memory.py recall <slug>`, a fast pure-ranking read (no model, no embeddings) of the live items, grouped by type.
 
-State: `~/.claude/lex-claude/state/<slug>/memory.jsonl` (one JSON item per line, alongside `HANDOFF.md`). Stdlib only, no model spawned, no embeddings. Kill switch: `LEX_CLAUDE_MEMORY_DISABLE=1` (and `LEX_CLAUDE_DISABLE=1` also stops it). The design and its validation (why forget-by-use plus recoverable supersession beats keep-all and LRU, and why the read-time variant failed) live in `~/Documents/magiclex/elastic-substrat/HANDOFF.md`.
+State: `~/.claude/lex-claude/state/<slug>/memory.jsonl` (one JSON item per line). Stdlib only, no model spawned, no embeddings. Kill switch: `LEX_CLAUDE_MEMORY_DISABLE=1` (and `LEX_CLAUDE_DISABLE=1` also stops it). The design and its validation (why forget-by-use plus recoverable supersession beats keep-all and LRU, and why the read-time variant failed) live in `~/Documents/magiclex/elastic-substrat/HANDOFF.md`.
 
 ## Skills included
 
@@ -218,7 +217,8 @@ All custom skills are prefixed `lc-` to avoid drowning in native skills or other
 - `lc-exploration`: explore an unfamiliar topic, codebase, or domain as a senior practitioner. Outputs five fixed sections (load-bearing concepts, common misconceptions, stable vs hype, where to dig, first concrete move).
 - `lc-docs-init`: scaffold the standard `docs/` layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) with empty headers. Skips existing files. Use to bootstrap a project.
 - `lc-docs-cleanup`: audit the project's docs for staleness, archives, dead refs, and duplicates. Reports a punch list, never edits.
-- `lc-handoff`: close a work slice properly. Commit/push check, docs-in-step check, then write the "Next" block into the project HANDOFF so the next session opens grounded. The judgment layer on top of the deterministic `handoff.sh` state.
+- `lc-succession`: hand this session's work to a fresh, verified successor near the context limit. Persists narrow memory, composes a live briefing, then drives `succeed.sh run` to spawn a successor, have the master verify identity + project understanding, reroll on failure, and stand down once one passes. Triggered automatically by the `Stop` hook past the token threshold; also invokable by hand.
+- `lc-close`: close a work slice by hand (no successor spawned). Commit/push check, docs-in-step check, and a narrow, repo-specific project-memory update. Use on "on ferme", "wrap up", "c'est bon pour aujourd'hui".
 - `lc-voice`: write as Lex, in his voice. One DNA (rhythm, concrete over adjectives, self-deprecation, spaced-hyphen asides), four registers with a contextual sarcasm dial (personal blog: full; professional blog: wit, no snark; outreach: one light touch max; forms: zero). Includes the anti-LLM pass from his stylometric classifier. Ground truth is the voice corpus on his machine, not vendored here.
 
 ## Repo structure
@@ -230,7 +230,9 @@ lex-claude/
 ├── bin/lex-claude               ← CLI
 ├── bin/hopsdev                  ← hopsworks-api branch switcher (deployed alongside lc)
 ├── hook.sh                      ← SessionStart hook
-├── handoff.sh                   ← session état: Stop/SessionEnd regen, PreToolUse gate, start injection
+├── etat.sh                      ← SessionStart état: active identity + live git + memory recall
+├── master.sh                    ← drift authority: judges identity/rules/project load
+├── succeed.sh                   ← Stop-hook token trigger + succession reroll loop
 ├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection

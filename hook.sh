@@ -9,26 +9,17 @@
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 
-# SessionStart delivers {session_id, source, ...} on stdin. Capture it (tty guard
-# so a manual `bash hook.sh` in a terminal never blocks on cat). Used below to
-# re-arm the handoff gate: /clear and /compact keep the same session_id, so the
-# gate marker survives the context wipe unless we drop it here.
-HOOK_INPUT=""
-[ -t 0 ] || HOOK_INPUT=$(cat)
-
 # Global ~/.claude/CLAUDE.md is auto-loaded into context by Claude Code itself
 # (the `claudeMd` system-reminder). Re-dumping it here only inflated the hook
 # output past the truncation limit, which cut off the acknowledgement
 # instruction at the bottom. Skip it; just name it so the ack can reference it.
 printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
 
-# Session état: live git + HANDOFF pointer (written by handoff.sh on every Stop).
-# Injected before the docs so a truncated bundle still carries the state.
-HANDOFF_SH="$SELF_DIR/handoff.sh"
-# Re-arm the gate first (drops a stale marker on clear/compact/resume, emits a
-# reload note), then inject the état the reload should re-ground on.
-[ -f "$HANDOFF_SH" ] && printf '%s' "$HOOK_INPUT" | bash "$HANDOFF_SH" rearm
-[ -f "$HANDOFF_SH" ] && bash "$HANDOFF_SH" start
+# Session état: active identity (verifiable fact) + live git. Injected before the
+# docs so a truncated bundle still carries the state. No persisted handoff, no
+# gate — succession happens live near the token limit (succeed.sh).
+ETAT_SH="$SELF_DIR/etat.sh"
+[ -f "$ETAT_SH" ] && bash "$ETAT_SH" start
 
 project_files="CLAUDE.md"
 if [ "$LEX_CLAUDE_CONTEXT_MODE" != "lite" ]; then
@@ -59,9 +50,10 @@ if [ -f "$LEX_CLAUDE_LANG_FILE" ]; then
   esac
 fi
 
-# The old ack ("repeat 2-3 rules, list the docs") was ceremony: unverifiable,
-# burned the first turn, drifted ~60% of the time. The new one is an état
-# readout the user can falsify at a glance.
-printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none), where the last session left off (HANDOFF + the live git line), and the next slice you propose, 3 lines max. If a HANDOFF exists, Read it before any file modification (a PreToolUse gate enforces this).\n'
+# The ack is an état readout the user can falsify at a glance, not ceremony.
+# No HANDOFF, no gate: identity/rules loading is verified live (the master + the
+# `lc claude` pre-flight), and work is handed to a fresh, verified successor near
+# the token limit rather than persisted to a drift-prone file.
+printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none) and the live git line, then the next step you propose, 3 lines max.\n'
 
 sh -c 'date +%s > "$1"' sh "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true

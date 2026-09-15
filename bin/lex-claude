@@ -82,6 +82,7 @@ Usage:
   lex-claude awake off|status                        Stop or inspect the assertion.
   lex-claude codex [prompt]                          Launch Codex with active identity + project docs injected as the initial prompt.
   lex-claude codex --print [prompt]                  Print the prompt that would be sent to Codex.
+  lex-claude claude [args...]                        Launch Claude Code with a verified cold-start: pre-flight a fresh session against the master before handing over the seat (bounded reroll + self-heal). Alias 'claude' to it to make it your default. Skip: LEX_CLAUDE_COLDSTART_DISABLE=1.
   lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
@@ -138,7 +139,7 @@ wire_hook() {
   local ucmd="bash $INSTALL_DIR/usage.sh hook"
   local dcmd="bash $INSTALL_DIR/digest.sh"
   local scmd="bash $INSTALL_DIR/style.sh"
-  local hcmd="bash $INSTALL_DIR/handoff.sh"
+  local sucmd="bash $INSTALL_DIR/succeed.sh"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -159,7 +160,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg hcmd "$hcmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -179,11 +180,10 @@ wire_hook() {
     .hooks.PreToolUse //= [] |
     .hooks.PreToolUse = [
       .hooks.PreToolUse[]
-      | select(all(.hooks[]?; (.command // "") | (test("lex-claude/usage") or test("lex-claude/handoff")) | not))
+      | select(all(.hooks[]?; (.command // "") | (test("lex-claude/usage") or test("lex-claude/handoff") or test("lex-claude/succeed")) | not))
     ] |
     .hooks.PreToolUse += [
-      {"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]},
-      {"matcher":"Write|Edit|MultiEdit|NotebookEdit","hooks":[{"type":"command","command":($hcmd + " gate")}]}
+      {"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}
     ] |
     .hooks.UserPromptSubmit //= [] |
     .hooks.UserPromptSubmit = [
@@ -197,21 +197,19 @@ wire_hook() {
       | select(all(.hooks[]?; (.command // "") | (test("lex-claude/style") or test("lex-claude/handoff")) | not))
     ] |
     .hooks.PostToolUse += [
-      {"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":$scmd}]},
-      {"matcher":"Read","hooks":[{"type":"command","command":($hcmd + " mark")}]}
+      {"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":$scmd}]}
     ] |
     .hooks.Stop //= [] |
     .hooks.Stop = [
       .hooks.Stop[]
-      | select(all(.hooks[]?; (.command // "") | test("lex-claude/handoff") | not))
+      | select(all(.hooks[]?; (.command // "") | (test("lex-claude/handoff") or test("lex-claude/succeed")) | not))
     ] |
-    .hooks.Stop += [{"hooks":[{"type":"command","command":($hcmd + " stop")}]}] |
+    .hooks.Stop += [{"hooks":[{"type":"command","command":($sucmd + " check")}]}] |
     .hooks.SessionEnd //= [] |
     .hooks.SessionEnd = [
       .hooks.SessionEnd[]
       | select(all(.hooks[]?; (.command // "") | test("lex-claude/handoff") | not))
-    ] |
-    .hooks.SessionEnd += [{"hooks":[{"type":"command","command":($hcmd + " end")}]}]
+    ]
   ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
     echo "hook: wired"
   else
@@ -1058,6 +1056,7 @@ _lc() {
     'github-login:wire gh + git auth (auto-detect, idempotent)'
     'awake:keep Mac awake (caffeinate wrapper)'
     'codex:launch Codex with lex-claude context preloaded'
+    'claude:launch Claude Code with a verified cold-start (master pre-flight)'
     'init:shell completion + context dump'
     'usage:report used / never-used commands + skills'
     'doctor:sanity-check the install'
@@ -1102,7 +1101,7 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules model lang skip github-login awake codex init usage doctor version"
+  cmds="install update identity rules model lang skip github-login awake codex claude init usage doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
@@ -1174,11 +1173,15 @@ Notes:
 - A condensed rules digest (DIGEST.md) is re-injected every Nth prompt
   (LEX_CLAUDE_DIGEST_EVERY, default 5) to keep the rules salient in long
   sessions. Treat it as recall, not new instructions.
-- Session état: a Stop hook regenerates a per-project HANDOFF.md
-  (~/.claude/lex-claude/state/<slug>/) after every turn — git state, files
-  touched, last asks. A PreToolUse gate blocks file modifications until the
-  HANDOFF was Read this session. Close a work slice with /lc-handoff to write
-  the "Next" block the next session opens on. Kill: LEX_CLAUDE_HANDOFF_DISABLE=1.
+- Session flow: no persisted handoff file. Identity/rules loading is verified
+  live by a "master" drift authority (master.sh) — a neutral judge spawned on
+  demand. Cold start goes through 'lc claude', which pre-flights a fresh session
+  against the master before handing over the seat (bounded reroll + self-heal on
+  failure). Near the token limit (LEX_CLAUDE_HANDOFF_TOKENS, default 600000) a
+  Stop hook (succeed.sh check) triggers the lc-succession skill: it spawns a
+  fresh successor, the master verifies identity + project understanding, rerolls
+  a fresh one on any failure, and stands down once one passes. Kill:
+  LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF
       ;;
@@ -1246,7 +1249,8 @@ cmd_doctor() {
   grep -q "lex-claude/usage" "$SETTINGS" 2>/dev/null && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
   grep -q "lex-claude/digest" "$SETTINGS" 2>/dev/null && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
   grep -q "lex-claude/style" "$SETTINGS" 2>/dev/null && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
-  grep -q "lex-claude/handoff" "$SETTINGS" 2>/dev/null && echo "ok    handoff hooks wired (Stop/SessionEnd/gate/mark)" || echo "warn  handoff hooks not wired (session état off). run 'lc update'"
+  grep -q "lex-claude/succeed" "$SETTINGS" 2>/dev/null && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
+  { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
   [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
@@ -1260,8 +1264,64 @@ cmd_usage() {
   bash "$script" report
 }
 
+# Best-effort self-heal: re-point the identity symlink to the identity it names
+# (recovers a dangling link). If the name can't be resolved, leave it for doctor.
+_coldstart_heal() {
+  local link="$1" tgt name
+  tgt=$(readlink "$link" 2>/dev/null || true)
+  name=$(basename "$tgt" .md 2>/dev/null)
+  if [ -n "$name" ] && [ -f "$INSTALL_DIR/identities/$name.md" ]; then
+    ln -sfn "$INSTALL_DIR/identities/$name.md" "$link" 2>/dev/null && echo "lc: re-pointed identity → $name" >&2
+  fi
+  return 0
+}
+
+# lc claude — cold-start supervisor. A hook cannot restart its own session, so
+# the launcher owns the gate: verify a fresh session actually loads identity +
+# rules (cheap symlink floor, then a behavioural probe judged by the master)
+# BEFORE handing over the seat. Reroll bounded, self-heal a drifted symlink,
+# never leave the user without a shell. Preserves the model/skip flags.
+# Opt out: LEX_CLAUDE_COLDSTART_DISABLE=1 (or LEX_CLAUDE_DISABLE=1).
+cmd_claude() {
+  local _f=()
+  [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
+  [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
+
+  local master="$SELF_DIR/master.sh"; [ -x "$master" ] || master="$INSTALL_DIR/master.sh"
+  if [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] || [ "${LEX_CLAUDE_COLDSTART_DISABLE:-}" = "1" ] \
+     || ! command -v jq >/dev/null 2>&1 || [ ! -x "$master" ]; then
+    exec command claude ${_f[@]+"${_f[@]}"} "$@"
+  fi
+
+  local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
+  local link="$CLAUDE_DIR/CLAUDE.md"
+  local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-preflight.$$"
+  local prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
+
+  local attempt=1
+  while [ "$attempt" -le "$max" ]; do
+    if [ ! -L "$link" ] || [ ! -e "$link" ]; then
+      echo "lc: identity symlink missing/broken ($link) — attempt $attempt/$max." >&2
+      _coldstart_heal "$link"
+    else
+      # set -e + pipefail: a failed probe must reroll, not abort the launcher.
+      command claude ${_f[@]+"${_f[@]}"} -p --output-format json --no-session-persistence "$prompt" 2>/dev/null \
+        | jq -r '.result // empty' > "$tmp" || true
+      if "$master" verify --answer "$tmp" --phase identity >/dev/null 2>&1; then
+        rm -f "$tmp"; exec command claude ${_f[@]+"${_f[@]}"} "$@"
+      fi
+      echo "lc: cold-start check failed (attempt $attempt/$max)." >&2
+      _coldstart_heal "$link"
+    fi
+    attempt=$((attempt+1))
+  done
+  rm -f "$tmp"
+  echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway." >&2
+  exec command claude ${_f[@]+"${_f[@]}"} "$@"
+}
+
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1291,6 +1351,7 @@ case "${1:-}" in
   github-login) shift; cmd_github_login "$@" ;;
   awake)        shift; cmd_awake "$@" ;;
   codex)        shift; cmd_codex "$@" ;;
+  claude)       shift; cmd_claude "$@" ;;
   init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   usage)        shift; cmd_usage "$@" ;;
