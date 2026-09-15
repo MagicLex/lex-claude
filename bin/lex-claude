@@ -1298,11 +1298,16 @@ cmd_claude() {
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
 
-  # Headless one-shot (-p/--print) is a script call, not a seat to sit in. Pass it
-  # straight through (with flags), no cold-start turn, no --resume.
+  # Only a FRESH interactive seat needs the cold-start check. Pass through
+  # untouched: headless one-shots (-p/--print) and resumes/continues
+  # (-r/--resume/-c/--continue) — resuming an existing session must not trigger a
+  # verification turn (and would otherwise double the --resume flag).
   local a
   for a in "$@"; do
-    case "$a" in -p|--print) exec command claude ${_f[@]+"${_f[@]}"} "$@" ;; esac
+    case "$a" in
+      -p|--print|-r|--resume|-c|--continue)
+        exec command claude ${_f[@]+"${_f[@]}"} "$@" ;;
+    esac
   done
 
   local master="$SELF_DIR/master.sh"; [ -x "$master" ] || master="$INSTALL_DIR/master.sh"

@@ -36,13 +36,16 @@ Steps, in order:
    master verifies them.
 
 3. **Run the succession.** Call:
-   `bash ~/.claude/lex-claude/succeed.sh run --briefing <your-briefing-file>`
-   Progress prints on stderr (attempts, rerolls); the outcome on stdout.
+   `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <your-briefing-file>`
+   `--open` pops the verified successor in a new terminal window (macOS: iTerm /
+   Terminal.app; other terminals fall back to the printed resume line). Progress
+   prints on stderr (attempts, rerolls); the outcome on stdout.
 
 4. **Relay the outcome and stand down.**
-   - `SUCCESSOR_OK <id>` → tell the user, verbatim, the resume line
-     (`claude --resume <id>`). Say the successor is verified and grounded, this
-     session is done, and they can close it. Then stop. Do not keep working here.
+   - `SUCCESSOR_OK <id>` → a new window opened on the successor (or, if it could
+     not, give the user the verbatim resume line `claude --resume <id>`). Say the
+     successor is verified and grounded, this session is done, and they can close
+     it. Then stop. Do not keep working here.
    - `SUCCESSION_FAILED` → tell the user succession failed the bounded retries,
      which means identity/rules loading is likely structurally broken (worth
      investigating, not retrying blindly). Fall back to native compaction: do
