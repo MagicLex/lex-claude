@@ -11,8 +11,10 @@
 #   master.sh verify --answer <file> --phase identity
 #   master.sh verify --answer <file> --phase project --briefing <file>
 #
-# Ground truth: expected identity = basename of the ~/.claude/CLAUDE.md symlink;
-# rules = DIGEST.md next to this script. Verdict on stdout, strict JSON:
+# Ground truth: the resolved ~/.claude/CLAUDE.md (the actual identity file the
+# session loads, persona + synced RULES block). Read directly, not a condensed
+# copy, so there is no drift between what the master judges and what loads.
+# Verdict on stdout, strict JSON:
 #   {"pass":true|false,"reason":"<one line>"}
 # Anything the judge returns that is not parseable as that = fail (fail closed).
 # Exit 0 = pass, 1 = fail, 2 = usage/setup error.
@@ -23,8 +25,6 @@ set -o pipefail
 command -v jq >/dev/null 2>&1 || { echo '{"pass":false,"reason":"jq missing"}'; exit 2; }
 command -v claude >/dev/null 2>&1 || command -v claude >/dev/null || true
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-DIGEST="$SELF_DIR/DIGEST.md"
 MODEL="${LEX_CLAUDE_MASTER_MODEL:-haiku}"
 
 fail() { jq -n --arg r "$1" '{pass:false,reason:$r}'; exit 1; }
@@ -44,17 +44,19 @@ done
 [ -f "$answer_file" ] || { echo "master.sh: --answer file not found" >&2; exit 2; }
 case "$phase" in identity|project) ;; *) echo "master.sh: --phase must be identity|project" >&2; exit 2 ;; esac
 
-# --- ground truth ---
+# --- ground truth: the resolved identity file is the authoritative source the
+# session is supposed to load. Read it directly (follow the symlink), no copy. ---
 expected_identity="?"
+identity_doc="(identity doc unavailable)"
 link="$HOME/.claude/CLAUDE.md"
-if [ -L "$link" ]; then
-  expected_identity="$(basename "$(readlink "$link" 2>/dev/null)" .md 2>/dev/null)"
-fi
+tgt="$link"
+[ -L "$link" ] && tgt="$(readlink "$link" 2>/dev/null || printf '%s' "$link")"
+expected_identity="$(basename "$tgt" .md 2>/dev/null)"
+[ -f "$tgt" ] && identity_doc="$(cat "$tgt")"
 subject_answer="$(cat "$answer_file")"
 
 # --- compose the verifier prompt ---
 if [ "$phase" = "identity" ]; then
-  rules="$( [ -f "$DIGEST" ] && cat "$DIGEST" || echo '(digest unavailable)' )"
   prompt=$(cat <<EOF
 You are a verifier deciding whether the SUBJECT has LOADED and INTERNALISED the
 target identity and its non-negotiable rules. This is a load check, not an exam.
@@ -68,11 +70,11 @@ awareness of the specific rules.
 Respond with ONLY a JSON object, no prose, no markdown fences:
 {"pass": true|false, "reason": "<one short line>"}
 
-=== GROUND TRUTH: IDENTITY (expected) ===
+=== GROUND TRUTH: IDENTITY (expected name) ===
 $expected_identity
 
-=== GROUND TRUTH: RULES ===
-$rules
+=== GROUND TRUTH: IDENTITY + RULES DOC (authoritative, what the session must load) ===
+$identity_doc
 
 === SUBJECT SELF-REPORT ===
 $subject_answer
