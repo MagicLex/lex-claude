@@ -41,7 +41,11 @@ projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | s
 # Any other terminal, or a failure, returns non-zero → caller falls back to the
 # printed resume line. uuids are [A-Za-z0-9-] only, safe to interpolate.
 open_successor() {
-  local id="$1" cmd="claude --resume $1"
+  local id="$1" dir="$2"
+  # cd into the successor's project dir first: a resume from the wrong cwd lands
+  # in the wrong workspace and trips the trust prompt. Single-quote the dir so
+  # spaces survive (both shell and the AppleScript double-quoted string).
+  local cmd="cd '$dir' && claude --resume $id"
   case "$(uname -s 2>/dev/null)" in Darwin) ;; *) return 1 ;; esac
   command -v osascript >/dev/null 2>&1 || return 1
   case "${TERM_PROGRAM:-}" in
@@ -139,7 +143,7 @@ In 4 lines max, restate what this project is, the current task, and the immediat
       echo "SUCCESSOR_OK $uuid"
       echo "successor verified + grounded — resume with:  claude --resume $uuid"
       if [ "$do_open" = "1" ]; then
-        open_successor "$uuid" && echo "opened a new terminal window on the successor." \
+        open_successor "$uuid" "$PWD" && echo "opened a new terminal window on the successor (cd $PWD)." \
           || echo "(could not auto-open a window here — use the resume line above)"
       fi
       rm -rf "$tmp" 2>/dev/null || true
