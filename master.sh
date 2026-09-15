@@ -90,10 +90,14 @@ else
   [ -f "$briefing_file" ] || fail "project phase needs --briefing"
   briefing="$(cat "$briefing_file")"
   prompt=$(cat <<EOF
-You are a strict verifier. Judge ONLY whether the SUBJECT below correctly
-understood the project state and the next step as described in the BRIEFING
-(the ground truth). A restatement that misses the current task, contradicts the
-briefing, or is vague/generic = fail.
+You are a verifier deciding whether the SUBJECT can CONTINUE this work well. The
+BRIEFING (ground truth) describes the project and the next step; the SUBJECT was
+asked for its concrete first move, not a summary. Judge the MOVE.
+
+PASS if: the opening move is specific, correct for the briefed next step, and
+consistent with the briefing (it shows the subject knows what to do and how).
+FAIL if: it is vague or generic, just restates/summarises the briefing without a
+real step, targets the wrong thing, or contradicts the briefing.
 
 Respond with ONLY a JSON object, no prose, no markdown fences:
 {"pass": true|false, "reason": "<one short line>"}
@@ -101,7 +105,7 @@ Respond with ONLY a JSON object, no prose, no markdown fences:
 === BRIEFING (ground truth) ===
 $briefing
 
-=== SUBJECT RESTATEMENT ===
+=== SUBJECT'S OPENING MOVE ===
 $subject_answer
 EOF
 )

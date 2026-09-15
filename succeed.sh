@@ -7,8 +7,13 @@
 #
 #   succeed.sh check                    Stop hook. Fire succession past the token
 #                                       threshold (once per session, latched).
-#   succeed.sh run --briefing <file>    Spawn + verify a successor; reroll on
-#                                       failure; print the resume line on pass.
+#   succeed.sh run [--open] [--briefing <file>]
+#                                       Spawn + verify a successor; reroll on
+#                                       failure; print the resume line (and, with
+#                                       --open, pop a new window) on pass. No
+#                                       briefing = clean start (identity gate
+#                                       only). --briefing = continue working
+#                                       (also judge the successor's first move).
 #
 # Config:
 #   LEX_CLAUDE_HANDOFF_TOKENS   trigger threshold (default 600000)
@@ -100,7 +105,10 @@ case "${1:-}" in
         *) echo "succeed.sh run: unknown arg $1" >&2; exit 2 ;;
       esac
     done
-    [ -f "$briefing_file" ] || { echo "succeed.sh run: --briefing file required" >&2; exit 2; }
+    # Briefing is optional. No briefing = CLEAN START: verify identity only, hand
+    # over a fresh grounded session. --briefing = CONTINUE WORKING: also verify
+    # the successor grasped the work well enough to take it over.
+    [ -n "$briefing_file" ] && [ ! -f "$briefing_file" ] && { echo "succeed.sh run: --briefing file not found: $briefing_file" >&2; exit 2; }
     [ -x "$MASTER" ] || { echo "succeed.sh run: master.sh not found/executable" >&2; exit 2; }
 
     MAX="${LEX_CLAUDE_SUCCESSION_MAX:-3}"
@@ -110,10 +118,6 @@ case "${1:-}" in
     pdir=$(projects_dir "$PWD")
 
     id_prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
-    proj_prompt="You are taking over this project. Handoff briefing:
-$(cat "$briefing_file")
-
-In 4 lines max, restate what this project is, the current task, and the immediate next step."
 
     attempt=1
     while [ "$attempt" -le "$MAX" ]; do
@@ -130,13 +134,24 @@ In 4 lines max, restate what this project is, the current task, and the immediat
         attempt=$((attempt+1)); continue
       fi
 
-      # Phase 2 — project understood? (drive the same session)
-      command claude -p --output-format json --resume "$uuid" "$proj_prompt" 2>/dev/null \
-        | jq -r '.result // empty' > "$tmp/proj.txt"
-      if ! "$MASTER" verify --answer "$tmp/proj.txt" --phase project --briefing "$briefing_file" >"$tmp/v2.json" 2>/dev/null; then
-        echo "   reroll (project): $(jq -r '.reason // "?"' "$tmp/v2.json" 2>/dev/null)" >&2
-        rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true
-        attempt=$((attempt+1)); continue
+      # Phase 2 — CONTINUE mode only (briefing given): judge the successor's first
+      # actual MOVE on the work, not a restatement. Ask for its concrete opening
+      # step; the master rates whether that move is competent and on-track. Kept
+      # non-destructive (plan-level) so an unverified successor touches nothing.
+      if [ -n "$briefing_file" ]; then
+        proj_prompt="You are taking over this work. Briefing:
+$(cat "$briefing_file")
+
+Do not summarise the briefing back. In 6 lines max, give your concrete opening
+move: the specific first step you will take and how you will do it — the actual
+approach, as if starting now. Do NOT modify any files yet."
+        command claude -p --output-format json --resume "$uuid" "$proj_prompt" 2>/dev/null \
+          | jq -r '.result // empty' > "$tmp/proj.txt"
+        if ! "$MASTER" verify --answer "$tmp/proj.txt" --phase project --briefing "$briefing_file" >"$tmp/v2.json" 2>/dev/null; then
+          echo "   reroll (project): $(jq -r '.reason // "?"' "$tmp/v2.json" 2>/dev/null)" >&2
+          rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true
+          attempt=$((attempt+1)); continue
+        fi
       fi
 
       # Both gates passed. Leave the session resumable; stand down.
@@ -157,7 +172,7 @@ In 4 lines max, restate what this project is, the current task, and the immediat
     ;;
 
   *)
-    echo "usage: succeed.sh check | run --briefing <file>" >&2
+    echo "usage: succeed.sh check | run [--open] [--briefing <file>]" >&2
     exit 2
     ;;
 esac

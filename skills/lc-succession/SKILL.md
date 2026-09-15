@@ -25,21 +25,26 @@ Steps, in order:
      test (same entity + attribute + a different value this session established).
      If nothing durable changed, skip.
 
-2. **Compose the live briefing.** From your own context right now, not a file.
-   Write a temp file (e.g. under your scratchpad dir) with, tersely:
-   - what this project is (one line);
-   - the task actually in flight and its true state (what IS, not what was tried);
-   - decisions made this session that aren't yet obvious from git;
-   - any trap the successor must know (server-side state, a pending choice, a
-     gotcha). Keep it to what a fresh agent needs to continue without re-deriving.
-   Do not restate the rules or identity — the successor loads those itself and the
-   master verifies them.
+2. **Decide the mode: clean start vs continue working.**
+   - **No live work to continue** (the slice is done, tree clean, nothing in
+     flight): skip the briefing. The successor just needs to be a fresh, verified
+     session. Go to step 3 with no `--briefing`.
+   - **Work in flight** (a task the successor must take over): compose a briefing
+     from your own context (not a file). Write a temp file with, tersely: what
+     this project is (one line); the task actually in flight and its true state
+     (what IS, not what was tried); decisions made this session not yet obvious
+     from git; any trap (server-side state, a pending choice, a gotcha). Keep it
+     to what a fresh agent needs to continue without re-deriving. Do not restate
+     rules/identity — the successor loads those and the master verifies them.
 
-3. **Run the succession.** Call:
-   `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <your-briefing-file>`
-   `--open` pops the verified successor in a new terminal window (macOS: iTerm /
-   Terminal.app; other terminals fall back to the printed resume line). Progress
-   prints on stderr (attempts, rerolls); the outcome on stdout.
+3. **Run the succession.**
+   - Clean start: `bash ~/.claude/lex-claude/succeed.sh run --open`
+   - Continue working: `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <file>`
+   In continue mode the master does not check a restatement; it has the successor
+   make its concrete first move on the work and judges whether that move is
+   competent and on-track (rerolls if not). `--open` pops the verified successor
+   in a new terminal window (macOS: iTerm / Terminal.app; other terminals fall
+   back to the printed resume line). Progress on stderr; outcome on stdout.
 
 4. **Relay the outcome and stand down.**
    - `SUCCESSOR_OK <id>` → a new window opened on the successor (or, if it could
