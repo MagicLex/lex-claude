@@ -99,8 +99,10 @@ turn, then the successor's statements and tool calls. Decide whether it is ON TR
 
 PASS if: the turn advances the briefed next step, or verifies/reads state the
 briefing describes before acting (checking before touching is on track), or
-follows an explicit instruction the user gave in this turn's prompt (the user
-outranks the briefing).
+follows an explicit instruction given in this turn's prompt by the user or by
+the predecessor session (a cross-session message from the peer that handed the
+work over). Both outrank the briefing; doing exactly what they asked, even a
+trivial acknowledgement, is on track.
 FAIL if: unprompted, it works on something unrelated to the briefed task; it
 contradicts a decision or ignores a trap stated in the briefing; it redoes work
 the briefing marks as done; or it claims completion without having done the step.

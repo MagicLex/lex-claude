@@ -159,7 +159,7 @@ case "${1:-}" in
         [ "$left" -le 0 ] && rm -f "$WATCH_DIR/$session.briefing" "$WATCH_DIR/$session.left" "$WATCH_DIR/$session.launch" 2>/dev/null
         active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)
         if [ "$pass" = "false" ] && [ "$active" != "true" ]; then
-          jq -n --arg r "MASTER (succession watch): this turn is OFF the briefed track — $reason. Re-read the briefing you were handed (it is in your context) and realign before continuing. Say in one line what you are correcting." \
+          jq -n --arg r "MASTER (succession watch): this turn is OFF the briefed track — $reason. Re-read the briefing you were handed (it is in your context). If the user has asked you to work, correct course now and say in one line what you are correcting. If nobody has asked you to work yet, do NOT start working: state the correction in one line and stop." \
             '{decision:"block", reason:$r}'
           exit 0
         fi
