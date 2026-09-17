@@ -1171,9 +1171,8 @@ Notes:
 - A condensed rules digest (DIGEST.md) is re-injected every Nth prompt
   (LEX_CLAUDE_DIGEST_EVERY, default 5) to keep the rules salient in long
   sessions. Treat it as recall, not new instructions.
-- Session flow: no persisted handoff file. Identity/rules loading is verified
-  live by a "master" drift authority (master.sh) — a neutral judge spawned on
-  demand. Cold start goes through 'lc claude', which pre-flights a fresh session
+- Session flow: identity/rules loading is verified live by a "master" judge
+  (master.sh), a neutral session spawned on demand. Cold start goes through 'lc claude', which pre-flights a fresh session
   against the master before handing over the seat (bounded reroll + self-heal on
   failure). Near the token limit (LEX_CLAUDE_HANDOFF_TOKENS, default 600000) a
   Stop hook (succeed.sh check) triggers the lc-succession skill: it spawns a
@@ -1181,7 +1180,9 @@ Notes:
   a fresh one on any failure, opens the verified one in a new terminal window,
   and stands down. In continue mode the master then watches the successor's
   first turns (LEX_CLAUDE_WATCH_TURNS, default 3) against the briefing via its
-  Stop hook and blocks once with the reason if it drifts off track. Kill:
+  Stop hook and blocks once with the reason if it drifts off track, while the
+  predecessor stays in tutelle over cross-session messages (SendMessage /
+  ListAgents) and corrects the successor itself. Kill:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF

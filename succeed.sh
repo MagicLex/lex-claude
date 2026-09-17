@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# succeed.sh — token-triggered, agent-to-agent succession. Replaces the
-# file-based handoff: instead of persisting drift-prone state to disk, the
-# current agent spawns a fresh successor near the context limit, has the master
+# succeed.sh — token-triggered, agent-to-agent succession. The current agent
+# spawns a fresh successor near the context limit, has the master
 # verify it loaded identity/rules AND understood the project, rerolls a fresh one
 # on any failed gate (slot machine, never sway), and only then stands down.
 # After the handover the master keeps WATCHING the successor's first turns
@@ -13,7 +12,7 @@
 #                                       with the master's reason if off track.
 #                                       (2) past the token threshold → fire
 #                                       succession (once per session, latched).
-#   succeed.sh run [--open] [--briefing <file>]
+#   succeed.sh run [--open] [--briefing <file>] [--from <peer-name>]
 #                                       Spawn + verify a successor; reroll on
 #                                       failure; print the resume line (and, with
 #                                       --open, pop a new window) on pass. No
@@ -21,6 +20,15 @@
 #                                       only). --briefing = continue working
 #                                       (also judge the successor's first move,
 #                                       then arm the watch on its first turns).
+#                                       --from = the predecessor's own peer name
+#                                       (ListAgents): the successor is told to
+#                                       message it once resumed, opening the
+#                                       tutelle channel (predecessor watches its
+#                                       first turns over cross-session messages).
+#   succeed.sh turn <id>                Print the successor's last finished turn
+#                                       (user prompt, statements, tool calls) and
+#                                       the master's latest verdict, for the
+#                                       predecessor to judge in tutelle.
 #
 # Config:
 #   LEX_CLAUDE_HANDOFF_TOKENS   trigger threshold (default 600000)
@@ -95,7 +103,11 @@ open_successor() {
   qdir=$(printf '%s' "$dir" | sed "s/'/'\\\\''/g")
   {
     printf '#!/bin/bash\n'
-    printf "cd '%s' && exec /bin/zsh -lic 'claude --resume %s'\n" "$qdir" "$id"
+    # lc claude passes --resume through with the pinned model + permission flags,
+    # so predecessor and successor run in the same mode (cross-session messages
+    # between different permission modes are held for approval). Raw claude if
+    # lc is not on PATH.
+    printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s; else claude --resume %s; fi'\n" "$qdir" "$id" "$id"
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
     iTerm)
@@ -174,11 +186,12 @@ case "${1:-}" in
 
   run)
     shift
-    briefing_file=""; do_open=""
+    briefing_file=""; do_open=""; from_peer=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --briefing) briefing_file="$2"; shift 2 ;;
         --open) do_open=1; shift ;;
+        --from) from_peer="$2"; shift 2 ;;
         *) echo "succeed.sh run: unknown arg $1" >&2; exit 2 ;;
       esac
     done
@@ -224,6 +237,17 @@ $(cat "$briefing_file")
 Do not summarise the briefing back. In 6 lines max, give your concrete opening
 move: the specific first step you will take and how you will do it — the actual
 approach, as if starting now. Do NOT modify any files yet."
+        if [ -n "$from_peer" ]; then
+          proj_prompt="$proj_prompt
+
+Tutelle: the session that did this work before you is the local peer session
+named '$from_peer'. It stays alive to watch your first turns. Once you are
+resumed interactively (your next turn onward), your very first action, before
+any other tool call, is SendMessage to '$from_peer' with the one-line message:
+'successor $uuid live in $PWD'. Then work. Messages arriving from '$from_peer'
+are corrections from the predecessor: act on them (it outranks this briefing;
+the user outranks both). When it tells you it is standing down, carry on alone."
+        fi
         command claude -p --output-format json --resume "$uuid" "$proj_prompt" 2>/dev/null \
           | jq -r '.result // empty' > "$tmp/proj.txt"
         if ! "$MASTER" verify --answer "$tmp/proj.txt" --phase project --briefing "$briefing_file" >"$tmp/v2.json" 2>/dev/null; then
@@ -245,6 +269,7 @@ approach, as if starting now. Do NOT modify any files yet."
       echo "SUCCESSOR_OK $uuid"
       echo "successor verified + grounded — resume with:  claude --resume $uuid"
       [ -f "$WATCH_DIR/$uuid.left" ] && echo "master watch armed: its first $WATCH turns are judged against the briefing (log: $WATCH_DIR/$uuid.log)."
+      [ -n "$from_peer" ] && echo "tutelle: the successor will message '$from_peer' once resumed; read its turns with:  succeed.sh turn $uuid"
       if [ "$do_open" = "1" ]; then
         open_successor "$uuid" "$PWD" && echo "opened a new terminal window on the successor (cd $PWD)." \
           || echo "(could not auto-open a window here — use the resume line above)"
@@ -259,8 +284,23 @@ approach, as if starting now. Do NOT modify any files yet."
     exit 1
     ;;
 
+  turn)
+    id="${2:-}"; id=${id//[^A-Za-z0-9-]/}
+    [ -n "$id" ] || { echo "usage: succeed.sh turn <successor-id>" >&2; exit 2; }
+    t="$(projects_dir "$PWD")/$id.jsonl"
+    [ -f "$t" ] || { echo "succeed.sh turn: no transcript for $id under $(projects_dir "$PWD")" >&2; exit 1; }
+    n=$(jq -Rr 'fromjson? | select(.type=="user" and (.message.content|type)=="string" and ((.message.content|startswith("<task-notification>"))|not)) | 1' "$t" 2>/dev/null | wc -l | tr -d ' ')
+    echo "=== successor $id — turn $((n-2)) since handover (last finished turn) ==="
+    render_turn "$t"
+    echo
+    if [ -f "$WATCH_DIR/$id.log" ]; then
+      echo "=== master's latest verdict (pass<TAB>reason) ==="
+      tail -1 "$WATCH_DIR/$id.log" | cut -f2-
+    fi
+    ;;
+
   *)
-    echo "usage: succeed.sh check | run [--open] [--briefing <file>]" >&2
+    echo "usage: succeed.sh check | run [--open] [--briefing <file>] [--from <peer>] | turn <id>" >&2
     exit 2
     ;;
 esac

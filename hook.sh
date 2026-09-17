@@ -16,8 +16,8 @@ LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
 
 # Session état: active identity (verifiable fact) + live git. Injected before the
-# docs so a truncated bundle still carries the state. No persisted handoff, no
-# gate — succession happens live near the token limit (succeed.sh).
+# docs so a truncated bundle still carries the state. Succession happens live
+# near the token limit (succeed.sh).
 ETAT_SH="$SELF_DIR/etat.sh"
 [ -f "$ETAT_SH" ] && bash "$ETAT_SH" start
 
@@ -51,7 +51,7 @@ if [ -f "$LEX_CLAUDE_LANG_FILE" ]; then
 fi
 
 # The ack is an état readout the user can falsify at a glance, not ceremony.
-# No HANDOFF, no gate: identity/rules loading is verified live (the master + the
+# identity/rules loading is verified live (the master + the
 # `lc claude` pre-flight), and work is handed to a fresh, verified successor near
 # the token limit rather than persisted to a drift-prone file.
 printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none) and the live git line, then the next step you propose, 3 lines max.\n'

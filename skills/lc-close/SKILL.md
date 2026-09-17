@@ -3,7 +3,7 @@ name: lc-close
 description: Close a work slice cleanly. Verify commit/push state, check docs are in step, and update the narrow persistent project memory. Use when the user says "on ferme", "wrap up", "c'est bon pour aujourd'hui", "close the session", or before stepping away from a work slice. This is the manual close ritual; it does not spawn a successor (that is lc-succession, for the context-full handoff).
 ---
 
-Closing a slice by hand. No handoff file, no "Next" block, no gate. Three steps.
+Closing a slice by hand. Three steps.
 
 1. **Commit check.** `git status` + `git log origin/HEAD..HEAD --oneline`. If work
    from this session is uncommitted or unpushed, say so and propose the

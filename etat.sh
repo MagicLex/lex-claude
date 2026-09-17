@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # etat.sh — the SessionStart floor: active identity (as a verifiable fact, from
 # the symlink) + live git state. This is the état the opener reports and the
-# master verifies against; no persisted handoff, no gate, no drift-prone "Next".
+# master verifies against.
 #
 #   etat.sh start   inject the identity + git readout at SessionStart.
 # Kill switch: LEX_CLAUDE_DISABLE=1.
