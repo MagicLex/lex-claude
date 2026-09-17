@@ -1178,7 +1178,10 @@ Notes:
   failure). Near the token limit (LEX_CLAUDE_HANDOFF_TOKENS, default 600000) a
   Stop hook (succeed.sh check) triggers the lc-succession skill: it spawns a
   fresh successor, the master verifies identity + project understanding, rerolls
-  a fresh one on any failure, and stands down once one passes. Kill:
+  a fresh one on any failure, opens the verified one in a new terminal window,
+  and stands down. In continue mode the master then watches the successor's
+  first turns (LEX_CLAUDE_WATCH_TURNS, default 3) against the briefing via its
+  Stop hook and blocks once with the reason if it drifts off track. Kill:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF

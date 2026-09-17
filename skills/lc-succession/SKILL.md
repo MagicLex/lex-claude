@@ -42,20 +42,25 @@ Steps, in order:
    - Continue working: `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <file>`
    In continue mode the master does not check a restatement; it has the successor
    make its concrete first move on the work and judges whether that move is
-   competent and on-track (rerolls if not). `--open` pops the verified successor
-   in a new terminal window (macOS: iTerm / Terminal.app; other terminals fall
-   back to the printed resume line). Progress on stderr; outcome on stdout.
+   competent and on-track (rerolls if not), then arms a watch: the successor's
+   own Stop hook has the master judge its first turns (`LEX_CLAUDE_WATCH_TURNS`,
+   default 3) against the briefing and blocks once with the reason if a turn
+   drifts off track. `--open` pops the verified successor in a new terminal
+   window (macOS: iTerm / Terminal.app; other terminals fall back to the printed
+   resume line; an open failure prints its cause). Progress on stderr; outcome on
+   stdout.
 
 4. **Relay the outcome and stand down.**
    - `SUCCESSOR_OK <id>` → a new window opened on the successor (or, if it could
-     not, give the user the verbatim resume line `claude --resume <id>`). Say the
-     successor is verified and grounded, this session is done, and they can close
-     it. Then stop. Do not keep working here.
+     not, give the user the verbatim resume line `claude --resume <id>` and the
+     printed cause). Say the successor is verified and grounded, that the master
+     watches its first turns (continue mode), this session is done, and they can
+     close it. Then stop. Do not keep working here.
    - `SUCCESSION_FAILED` → tell the user succession failed the bounded retries,
      which means identity/rules loading is likely structurally broken (worth
      investigating, not retrying blindly). Fall back to native compaction: do
      nothing further, just stop.
 
-Note: the successor is a persisted, resumable session — closing this one does not
-close it. There is no seamless terminal baton-pass; the user resumes the successor
-themselves.
+Note: the successor is a persisted, resumable session. Closing this one does not
+close it, and if the window did not open the user resumes it by hand with the
+printed line.
