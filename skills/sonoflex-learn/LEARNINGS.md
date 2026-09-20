@@ -2,6 +2,26 @@
 
 Human-readable trail of the autonomous learning loop. One section per pass. Newest on top. Every line here is also in `ledger.jsonl` (with evidence) and in `sonoflex.md`'s LC_LEARNED block. Revert any of it via git.
 
+## 2026-09-20 — pass #6 (92 files scanned, 52 candidates)
+
+Promoted: none this pass.
+
+Bumped: none — the three sessions that overlap earlier ledger entries (hopsworks-looper `5ead2079...`, hopsworks-managed `22715a88...`) resurfaced only because the files were appended to after the cursor, which re-emits the whole file; the actual matching lines are the same evidence already on file, not new occurrences.
+
+New in ledger, not yet promoted (recurrence 1, watching for a repeat):
+- For stakeholder reports (board/exec), answer the outcome question they actually want, not a process/timeline recap. _("osef des timeslines cest pas ce que le board veux voir ils veulent juste savoir ce que le aab testing montre")_
+- For selling a product, prefers a live plug-and-play demo people can see and want over a market narrative built around a use case. _("jai pas a creer de marchergenre je me pluging je montre, je demontre les gens voient veulent")_
+- For low-stakes admin actions already greenlit where you already hold the tool access (cutting a Jira ticket), just do it - don't stall asking for a key that's ceremony, not a decision. _("you have access to fking jira do the ticket")_
+
+Confirmed (already in the curated persona or an earlier promoted lesson, no new line):
+- "Docs are reference, not editorial. Show the command, show the response" (RULES writing style) covers both the docx sizing-deck rewrite ("je veux du fwd looking pas du genre 'faut revoir cette remarque'") and the v2-docs request ("dont be ridiculously verbose and comment... clear than editorialist").
+- Short-paragraph / no-roman voice line (already promoted) covers the hopsworks-looper context-switch recap ("dont do a novel") and the Samreen support email ("just give me the short message") - same lessons already on file, not new occurrences.
+- "Never hardcode, never mock" / show-the-real-command (RULES) covers the rondb-web landing page honesty push ("faut que ce soit honnête et copiable, sinon le premier dev qui teste tombe exactement dans le mur").
+
+Scanner note: same noise pattern as pass #5 - vibe-audio music-production feedback (11 candidates, domain taste not persona), hopsworks-looper multi-agent `<teammate-message>` relays with zero Lex signal, and now a new failure mode: two session files got appended-to after the cursor, causing the scanner to re-emit the entire file including lines from weeks earlier that a prior pass already triaged. Worth teaching scan.py to diff against the ledger's known evidence hashes rather than re-judging by hand each time; noted here rather than as a code change since it's outside this skill's write scope.
+
+Pruned: none - block still well under the ~22-line cap, no line contradicted or stale.
+
 ## 2026-09-13 — pass #5 (58 files scanned, 43 candidates)
 
 Promoted: none this pass.
