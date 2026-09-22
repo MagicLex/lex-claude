@@ -152,6 +152,9 @@ rm -f "$errf"
 
 # -p --output-format json wraps the model text in .result. The verdict JSON is
 # inside that string; salvage the first {...} block if the model added noise.
+# is_error:true with exit 0 = API/auth failure; .result then holds the message.
+[ "$(printf '%s' "$raw" | jq -r '.is_error // false' 2>/dev/null)" = "true" ] \
+  && fail "judge errored: $(printf '%s' "$raw" | jq -r '.result // empty' | head -c 200)"
 result=$(printf '%s' "$raw" | jq -r '.result // empty' 2>/dev/null)
 [ -n "$result" ] || fail "judge returned no result"
 # Extract the JSON object from the judge's reply: first { to last } across the

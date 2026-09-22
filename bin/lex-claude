@@ -1265,6 +1265,11 @@ cmd_doctor() {
   _hook_wired "lex-claude/succeed" && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
   { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
   command -v jq >/dev/null 2>&1 && echo "ok    jq present" || echo "warn  jq missing (cold-start check + succession judge run unverified). install jq"
+  case "$(command claude auth status 2>/dev/null | jq -r '.loggedIn | tostring' 2>/dev/null)" in
+    true)  echo "ok    claude logged in" ;;
+    false) echo "warn  claude not logged in (cold-start check + succession judge cannot run). run 'claude auth login'" ;;
+    *)     echo "ok    claude auth: unknown (old claude or no jq)" ;;
+  esac
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
   [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
@@ -1325,6 +1330,13 @@ cmd_claude() {
     exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
   fi
 
+  # No auth → every -p turn returns an error blob, subject and judge alike.
+  # Rerolling cannot fix that; hand the seat over so claude runs its login flow.
+  if [ "$("$claude_bin" auth status 2>/dev/null | jq -r '.loggedIn | tostring' 2>/dev/null)" = "false" ]; then
+    echo "lc: claude is not logged in — skipping the cold-start check. Log in, then relaunch." >&2
+    exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
+  fi
+
   local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
   local link="$CLAUDE_DIR/CLAUDE.md"
   local pdir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's#/#-#g')"
@@ -1344,13 +1356,20 @@ cmd_claude() {
     # Verify the REAL session: run the identity self-report as turn 1 of the
     # persisted session, judge THAT turn. set -e/pipefail: a failed turn rerolls.
     # Keep the failure reason: a silent 3/3 reroll is undebuggable.
-    "$claude_bin" ${_f[@]+"${_f[@]}"} -p --output-format json --session-id "$uuid" "$prompt" 2>"$tmp.err" \
-      | jq -r '.result // empty' > "$tmp" || true
+    "$claude_bin" ${_f[@]+"${_f[@]}"} -p --output-format json --session-id "$uuid" "$prompt" 2>"$tmp.err" > "$tmp.raw" || true
+    # -p reports API/auth failures as {"is_error":true,"result":"<message>"} with
+    # exit 0. That is not identity drift: judging it or rerolling is pointless.
+    if [ "$(jq -r '.is_error // false' "$tmp.raw" 2>/dev/null)" = "true" ]; then
+      echo "lc: preflight turn errored: $(jq -r '.result // empty' "$tmp.raw" | head -c 200) — launching unverified." >&2
+      rm -f "$tmp" "$tmp.err" "$tmp.raw" "$pdir/$uuid.jsonl" 2>/dev/null || true
+      exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
+    fi
+    jq -r '.result // empty' "$tmp.raw" > "$tmp" 2>/dev/null || true
     local reason
     if [ ! -s "$tmp" ]; then
       reason="preflight turn produced no answer: $(tail -n1 "$tmp.err" 2>/dev/null || echo 'no stderr')"
     elif reason=$("$master" verify --answer "$tmp" --phase identity 2>/dev/null); then
-      rm -f "$tmp" "$tmp.err"
+      rm -f "$tmp" "$tmp.err" "$tmp.raw"
       # Hand over the verified session itself; your work continues as turn 2+.
       exec "$claude_bin" ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
     else
@@ -1361,7 +1380,7 @@ cmd_claude() {
     _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
-  rm -f "$tmp" "$tmp.err"
+  rm -f "$tmp" "$tmp.err" "$tmp.raw"
   echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
   exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
 }
