@@ -25,7 +25,6 @@
 
 set -o pipefail
 command -v jq >/dev/null 2>&1 || { echo '{"pass":false,"reason":"jq missing"}'; exit 2; }
-command -v claude >/dev/null 2>&1 || command -v claude >/dev/null || true
 
 MODEL="${LEX_CLAUDE_MASTER_MODEL:-haiku}"
 
@@ -143,9 +142,13 @@ EOF
 fi
 
 # --- spawn the neutral judge ---
+# Keep stderr: "judge spawn failed" alone is undebuggable (model alias not
+# available on this account, unsupported flag, auth...).
+errf=$(mktemp 2>/dev/null) || errf="/tmp/lc-master.$$"
 raw=$(LEX_CLAUDE_DISABLE=1 command claude -p --output-format json \
-        --no-session-persistence --model "$MODEL" "$prompt" 2>/dev/null) \
-  || fail "judge spawn failed"
+        --no-session-persistence --model "$MODEL" "$prompt" 2>"$errf") \
+  || { err=$(tail -n1 "$errf" 2>/dev/null | cut -c1-200); rm -f "$errf"; fail "judge spawn failed (model $MODEL): ${err:-no stderr}"; }
+rm -f "$errf"
 
 # -p --output-format json wraps the model text in .result. The verdict JSON is
 # inside that string; salvage the first {...} block if the model added noise.
