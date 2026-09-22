@@ -1264,6 +1264,7 @@ cmd_doctor() {
   _hook_wired "lex-claude/style" && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
   _hook_wired "lex-claude/succeed" && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
   { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
+  command -v jq >/dev/null 2>&1 && echo "ok    jq present" || echo "warn  jq missing (cold-start check + succession judge run unverified). install jq"
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
   [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
@@ -1298,6 +1299,10 @@ _coldstart_heal() {
 # shell. Preserves the model/skip flags.
 # Opt out: LEX_CLAUDE_COLDSTART_DISABLE=1 (or LEX_CLAUDE_DISABLE=1).
 cmd_claude() {
+  # Resolve the real binary once. `exec command claude` only works where a
+  # /usr/bin/command shim exists (macOS); Linux has none → "exec: command: not
+  # found". type -P is path-only, so the rc router function is never re-entered.
+  local claude_bin; claude_bin=$(type -P claude) || die "claude not found in PATH"
   local _f=()
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
@@ -1310,14 +1315,14 @@ cmd_claude() {
   for a in "$@"; do
     case "$a" in
       -p|--print|-r|--resume|-c|--continue)
-        exec command claude ${_f[@]+"${_f[@]}"} "$@" ;;
+        exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@" ;;
     esac
   done
 
   local master="$SELF_DIR/master.sh"; [ -x "$master" ] || master="$INSTALL_DIR/master.sh"
   if [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] || [ "${LEX_CLAUDE_COLDSTART_DISABLE:-}" = "1" ] \
      || ! command -v jq >/dev/null 2>&1 || [ ! -x "$master" ]; then
-    exec command claude ${_f[@]+"${_f[@]}"} "$@"
+    exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
   fi
 
   local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
@@ -1335,24 +1340,30 @@ cmd_claude() {
       _coldstart_heal "$link"; attempt=$((attempt+1)); continue
     fi
     uuid=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
-    [ -n "$uuid" ] || { echo "lc: no uuid source; launching raw." >&2; rm -f "$tmp"; exec command claude ${_f[@]+"${_f[@]}"} "$@"; }
+    [ -n "$uuid" ] || { echo "lc: no uuid source; launching raw." >&2; rm -f "$tmp"; exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"; }
     # Verify the REAL session: run the identity self-report as turn 1 of the
     # persisted session, judge THAT turn. set -e/pipefail: a failed turn rerolls.
-    command claude ${_f[@]+"${_f[@]}"} -p --output-format json --session-id "$uuid" "$prompt" 2>/dev/null \
+    # Keep the failure reason: a silent 3/3 reroll is undebuggable.
+    "$claude_bin" ${_f[@]+"${_f[@]}"} -p --output-format json --session-id "$uuid" "$prompt" 2>"$tmp.err" \
       | jq -r '.result // empty' > "$tmp" || true
-    if "$master" verify --answer "$tmp" --phase identity >/dev/null 2>&1; then
-      rm -f "$tmp"
+    local reason
+    if [ ! -s "$tmp" ]; then
+      reason="preflight turn produced no answer: $(tail -n1 "$tmp.err" 2>/dev/null || echo 'no stderr')"
+    elif reason=$("$master" verify --answer "$tmp" --phase identity 2>/dev/null); then
+      rm -f "$tmp" "$tmp.err"
       # Hand over the verified session itself; your work continues as turn 2+.
-      exec command claude ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
+      exec "$claude_bin" ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
+    else
+      reason="master: $(printf '%s' "$reason" | jq -r '.reason // empty' 2>/dev/null || printf '%s' "$reason")"
     fi
-    echo "lc: cold-start check failed (attempt $attempt/$max) — rerolling a fresh session." >&2
+    echo "lc: cold-start check failed (attempt $attempt/$max) — $reason — rerolling a fresh session." >&2
     rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true    # discard the rejected session
     _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
-  rm -f "$tmp"
+  rm -f "$tmp" "$tmp.err"
   echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
-  exec command claude ${_f[@]+"${_f[@]}"} "$@"
+  exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
 }
 
 case "${1:-}" in
