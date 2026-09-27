@@ -2,6 +2,22 @@
 
 Human-readable trail of the autonomous learning loop. One section per pass. Newest on top. Every line here is also in `ledger.jsonl` (with evidence) and in `sonoflex.md`'s LC_LEARNED block. Revert any of it via git.
 
+## 2026-09-27 — pass #7 (61 files scanned, 29 candidates)
+
+Promoted: none this pass.
+
+Bumped: none — the Jira-key session (`9BAD0111...`) resurfaced verbatim, same evidence already on file as ledger entry from pass #6, not a new occurrence.
+
+New in ledger, not yet promoted (recurrence 1, watching for a repeat):
+- When asked to do a concrete task, don't substitute writing notes/observations for actually doing it - he calls it out on the spot. _("je note que tu notes mais cest pas ce que je tai demandé jj")_
+
+Confirmed (already in the curated persona or an earlier promoted lesson, no new line):
+- "Docs are reference, not editorial" (RULES writing style) covers the sizing-docs v2 request ("dont be ridiculously verbose and comment... clear than editorialist").
+
+Scanner note: same noise pattern as recent passes - vibe-audio music-production feedback (16 of 29 candidates, domain taste not persona), two identical `<teammate-message>` succession-briefing relays with zero Lex signal, and one-off tool/project clarifications (Google Sheets vs Excel for DU sizing docs, no-PR-push-to-main for the hackathon fork) that are project-specific facts, not durable persona.
+
+Pruned: none - block still well under the ~22-line cap, no line contradicted or stale.
+
 ## 2026-09-20 — pass #6 (92 files scanned, 52 candidates)
 
 Promoted: none this pass.
