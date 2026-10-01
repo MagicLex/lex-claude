@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Managed by lex-claude. Source: $INSTALL_DIR/statusline-command.sh
-# Renders: ➜ dir git:(branch) ✗ identity lang:xx tok:Nk
+# Renders: ➜ dir git:(branch) ✗ identity lang:xx tok:Nk genN ←predecessor
 
 set -u
 input=$(cat)
 
 j() { jq -r "$1" 2>/dev/null <<<"$input"; }
-cwd=$(j '.workspace.current_dir')
-[ -z "$cwd" ] && cwd=$(j '.cwd')
+cwd=$(j '.workspace.current_dir // empty')
+[ -z "$cwd" ] && cwd=$(j '.cwd // empty')
 dir_name=$(basename "${cwd:-?}")
 
 git_info=""
@@ -67,5 +67,14 @@ if [ -n "$ctx_tokens" ]; then
     fi
 fi
 
-printf "\033[1;32m➜\033[0m  \033[0;36m%s\033[0m%s%s%s%s%s" \
-    "$dir_name" "$git_info" "$ident_info" "$model_info" "$lang_info" "$tok_info"
+# Succession lineage, written by succeed.sh on handover: "gen<TAB>predecessor-id".
+lineage_info=""
+session_id=$(j '.session_id // empty')
+LEX_LINEAGE_FILE="$HOME/.claude/lex-claude/state/lineage/${session_id//[^A-Za-z0-9-]/}"
+if [ -n "$session_id" ] && [ -f "$LEX_LINEAGE_FILE" ]; then
+    IFS=$'\t' read -r gen parent < "$LEX_LINEAGE_FILE"
+    [ -n "${gen:-}" ] && [ -n "${parent:-}" ] && lineage_info=$(printf " \033[2;36mgen%s ←%s\033[0m" "$gen" "$(printf '%s' "${parent:0:8}" | tr 'A-Z' 'a-z')")
+fi
+
+printf "\033[1;32m➜\033[0m  \033[0;36m%s\033[0m%s%s%s%s%s%s" \
+    "$dir_name" "$git_info" "$ident_info" "$model_info" "$lang_info" "$tok_info" "$lineage_info"

@@ -1166,8 +1166,9 @@ Notes:
   mode (power + external display, or an EDID dummy plug) is the only path.
 - The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
 - The statusline at ~/.claude/statusline-command.sh is also managed (renders
-  dir, git status, identity, lang (if set), and a token meter that turns red
-  past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000).
+  dir, git status, identity, lang (if set), a token meter that turns red
+  past LEX_CLAUDE_DUMB_ZONE_TOKENS, default 300000, and on a successor its
+  lineage: genN plus the predecessor's short id).
 - A condensed rules digest (DIGEST.md) is re-injected every Nth prompt
   (LEX_CLAUDE_DIGEST_EVERY, default 5) to keep the rules salient in long
   sessions. Treat it as recall, not new instructions.
@@ -1177,12 +1178,13 @@ Notes:
   failure). Near the token limit (LEX_CLAUDE_HANDOFF_TOKENS, default 600000) a
   Stop hook (succeed.sh check) triggers the lc-succession skill: it spawns a
   fresh successor, the master verifies identity + project understanding, rerolls
-  a fresh one on any failure, opens the verified one in a new terminal window,
-  and stands down. In continue mode the master then watches the successor's
+  a fresh one on any failure, opens the verified one in a new terminal window
+  with a kickoff prompt (it starts working on its own), and stands down. In continue mode the master then watches the successor's
   first turns (LEX_CLAUDE_WATCH_TURNS, default 3) against the briefing via its
   Stop hook and blocks once with the reason if it drifts off track, while the
-  predecessor stays in tutelle over cross-session messages (SendMessage /
-  ListAgents) and corrects the successor itself. Kill:
+  predecessor stays in tutelle: it peeks at the successor's transcript
+  (Monitor on succeed.sh peek, one event per finished turn) and corrects it
+  over SendMessage. Kill:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 EOF
@@ -1339,7 +1341,7 @@ cmd_claude() {
 
   local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
   local link="$CLAUDE_DIR/CLAUDE.md"
-  local pdir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's#/#-#g')"
+  local pdir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's#[^A-Za-z0-9]#-#g')"
   local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-preflight.$$"
   local prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
 

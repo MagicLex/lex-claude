@@ -47,34 +47,37 @@ Steps, in order:
    own Stop hook has the master judge its first turns (`LEX_CLAUDE_WATCH_TURNS`,
    default 3) against the briefing and blocks once with the reason if a turn
    drifts off track. `--from` tells the successor to message you by name once it
-   is resumed, which opens the tutelle channel (step 4). `--open` pops the
-   verified successor in a new terminal window (macOS: iTerm / Terminal.app;
+   is resumed, which gives you its address for corrections (step 4). `--open` pops the
+   verified successor in a new terminal window with a kickoff prompt, so it starts
+   the work on its own (macOS: iTerm / Terminal.app;
    other terminals fall back to the printed resume line; an open failure prints
    its cause). Progress on stderr; outcome on stdout.
 
 4. **Relay the outcome, then tutelle (continue mode) or stand down.**
    - `SUCCESSOR_OK <id>`, clean start → a new window opened on the successor (or,
-     if it could not, give the user the verbatim resume line `claude --resume <id>`
+     if it could not, give the user the verbatim resume line printed by `succeed.sh`
      and the printed cause). Say the successor is verified, this session is done,
      and they can close it. Then stop.
    - `SUCCESSOR_OK <id>`, continue mode → same relay, plus: tell the user this
      session stays open in tutelle for the successor's first turns
-     (`LEX_CLAUDE_WATCH_TURNS`, default 3) and must not be closed yet. Then wait.
-     Do not poll, do not call `ListAgents` in a loop: the successor's handshake
-     arrives by itself as a `<cross-session-message from="<peer>">` when the user
-     starts working in it. On the handshake, subscribe with `SendMessage` to that
-     `from` with `notify_when_idle: true` and no message (a pure subscription).
-     Each `[Cross-session idle notice]` = one finished turn: run
+     (`LEX_CLAUDE_WATCH_TURNS`, default 3) and must not be closed yet. Then peek:
+     start `Monitor` on `bash ~/.claude/lex-claude/succeed.sh peek <id>`. It reads
+     the successor's transcript and emits one line per finished turn, then exits
+     after the watched turns. Never ping the successor to learn its state; no
+     `notify_when_idle` subscription (idle notices duplicate and misfire on
+     background waits). The successor's handshake (`<cross-session-message
+     from="<peer>">`) only gives you its address: note it, do not reply.
+     Each peek event = one finished turn: run
      `bash ~/.claude/lex-claude/succeed.sh turn <id>` and judge that turn with
      your full context (you know the traps the briefing could not carry; the
      master's haiku verdict is appended for reference, not as the answer). On
      track → nothing. Off track → one `SendMessage` to the successor: what is
-     wrong, what to do instead, concrete, one paragraph. Re-subscribe for the
-     next turn. After the watched turns, send one last message ("standing down,
-     you are on your own") and tell the user this session can be closed. Stop.
+     wrong, what to do instead, concrete, one paragraph. When peek reports done,
+     send one last message ("standing down, you are on your own") and tell the
+     user this session can be closed. Stop.
      If the user asks you something meanwhile, answer, then resume waiting.
-   - No handshake ever arriving means the user has not started the successor;
-     that is fine, stay idle. Nothing to work on here.
+   - No peek event ever arriving means the successor never ran a turn (window
+     closed, or not resumed); that is fine, stay idle. Nothing to work on here.
    - `SUCCESSION_FAILED` → tell the user succession failed the bounded retries,
      which means identity/rules loading is likely structurally broken (worth
      investigating, not retrying blindly). Fall back to native compaction: do

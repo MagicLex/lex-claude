@@ -15,16 +15,25 @@
 #   succeed.sh run [--open] [--briefing <file>] [--from <peer-name>]
 #                                       Spawn + verify a successor; reroll on
 #                                       failure; print the resume line (and, with
-#                                       --open, pop a new window) on pass. No
+#                                       --open, pop a new window) on pass. In
+#                                       continue mode the resume carries a kickoff
+#                                       prompt so the successor starts working on
+#                                       its own instead of idling at the prompt. No
 #                                       briefing = clean start (identity gate
 #                                       only). --briefing = continue working
 #                                       (also judge the successor's first move,
 #                                       then arm the watch on its first turns).
 #                                       --from = the predecessor's own peer name
 #                                       (ListAgents): the successor is told to
-#                                       message it once resumed, opening the
-#                                       tutelle channel (predecessor watches its
-#                                       first turns over cross-session messages).
+#                                       message it once resumed, so the
+#                                       predecessor has its address for
+#                                       corrections (tutelle).
+#                                       On pass, records the lineage (generation +
+#                                       predecessor id) for the statusline.
+#   succeed.sh peek <id>                Stream for the predecessor's Monitor: one
+#                                       line per turn the successor finishes (read
+#                                       off its transcript, the successor is never
+#                                       pinged). Exits after LEX_CLAUDE_WATCH_TURNS.
 #   succeed.sh turn <id>                Print the successor's last finished turn
 #                                       (user prompt, statements, tool calls) and
 #                                       the master's latest verdict, for the
@@ -33,7 +42,7 @@
 # Config:
 #   LEX_CLAUDE_HANDOFF_TOKENS   trigger threshold (default 600000)
 #   LEX_CLAUDE_SUCCESSION_MAX   reroll cap (default 3)
-#   LEX_CLAUDE_WATCH_TURNS      successor turns the master watches (default 3)
+#   LEX_CLAUDE_WATCH_TURNS      successor turns the master + predecessor watch (default 3)
 # Kill switches: LEX_CLAUDE_DISABLE=1, LEX_CLAUDE_HANDOFF_DISABLE=1.
 # Needs jq. Reuses master.sh (next to this script) as the drift authority.
 
@@ -46,6 +55,7 @@ MASTER="$SELF_DIR/master.sh"
 STATE_ROOT="$HOME/.claude/lex-claude/state"
 LATCH_DIR="$STATE_ROOT/.succession"
 WATCH_DIR="$LATCH_DIR/watch"
+LINEAGE_DIR="$STATE_ROOT/lineage"   # <session-id> = "gen<TAB>predecessor-id"; read by the statusline
 
 # Context size = last assistant turn's live footprint (input + both cache reads).
 context_tokens() {
@@ -76,8 +86,13 @@ render_turn() {
   | head -c 9000
 }
 
-# Project transcript dir for a cwd (Claude Code slug: "/" -> "-").
-projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's#/#-#g')"; }
+# Project transcript dir for a cwd (Claude Code slug: every non-alphanumeric -> "-").
+projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g')"; }
+
+# First prompt of a resumed CONTINUE-mode successor. A bare --resume opens at an
+# empty prompt and waits for the user; this turn starts the work. Plain text, no
+# quotes or $: it is embedded in the launcher's shell quoting.
+KICKOFF="Resumed after the handover: take over the briefed work now. Start with the opening move you gave, then carry on."
 
 # Open the verified successor in a NEW terminal window running `claude --resume`.
 # macOS only, iTerm + Terminal.app. The window runs a tiny launcher script (cd,
@@ -86,7 +101,7 @@ projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | s
 # be ready yet. Failures are reported on stderr, not swallowed — a silent
 # "opened" that did not is worse than a printed resume line.
 open_successor() {
-  local id="$1" dir="$2" app="" err qdir launcher
+  local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
   launcher="$WATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
   case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not macOS, no auto-open" >&2; return 1 ;; esac
   command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
@@ -107,7 +122,7 @@ open_successor() {
     # so predecessor and successor run in the same mode (cross-session messages
     # between different permission modes are held for approval). Raw claude if
     # lc is not on PATH.
-    printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s; else claude --resume %s; fi'\n" "$qdir" "$id" "$id"
+    printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s%s; else claude --resume %s%s; fi'\n" "$qdir" "$id" "$kick" "$id" "$kick"
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
     iTerm)
@@ -241,8 +256,8 @@ approach, as if starting now. Do NOT modify any files yet."
           proj_prompt="$proj_prompt
 
 Tutelle: the session that did this work before you is the local peer session
-named '$from_peer'. It stays alive to watch your first turns. Once you are
-resumed interactively (your next turn onward), your very first action, before
+named '$from_peer'. It stays alive to watch your first turns. When you are
+resumed (the kickoff prompt after this one), your very first action, before
 any other tool call, is SendMessage to '$from_peer' with the one-line message:
 'successor $uuid live in $PWD'. Then work. Messages arriving from '$from_peer'
 are corrections from the predecessor: act on them (it outranks this briefing;
@@ -266,12 +281,21 @@ the user outranks both). When it tells you it is standing down, carry on alone."
       fi
 
       # Both gates passed. Leave the session resumable; stand down.
+      # Lineage: this session (the caller's, from Claude Code's env) is the parent;
+      # a session with no record is generation 1.
+      parent="${CLAUDE_CODE_SESSION_ID:-}"; parent=${parent//[^A-Za-z0-9-]/}
+      if [ -n "$parent" ] && mkdir -p "$LINEAGE_DIR" 2>/dev/null; then
+        pgen=$(cut -f1 "$LINEAGE_DIR/$parent" 2>/dev/null)
+        case "$pgen" in *[!0-9]*|"") pgen=1 ;; esac
+        printf '%s\t%s\n' "$((pgen+1))" "$parent" > "$LINEAGE_DIR/$uuid" 2>/dev/null || true
+      fi
       echo "SUCCESSOR_OK $uuid"
-      echo "successor verified + grounded — resume with:  claude --resume $uuid"
+      kick=""; [ -n "$briefing_file" ] && kick="$KICKOFF"
+      echo "successor verified + grounded — resume with:  claude --resume $uuid${kick:+ \"$kick\"}"
       [ -f "$WATCH_DIR/$uuid.left" ] && echo "master watch armed: its first $WATCH turns are judged against the briefing (log: $WATCH_DIR/$uuid.log)."
-      [ -n "$from_peer" ] && echo "tutelle: the successor will message '$from_peer' once resumed; read its turns with:  succeed.sh turn $uuid"
+      [ -n "$from_peer" ] && echo "tutelle: peek with Monitor on:  succeed.sh peek $uuid   (read each finished turn with:  succeed.sh turn $uuid)"
       if [ "$do_open" = "1" ]; then
-        open_successor "$uuid" "$PWD" && echo "opened a new terminal window on the successor (cd $PWD)." \
+        open_successor "$uuid" "$PWD" "$kick" && echo "opened a new terminal window on the successor (cd $PWD)." \
           || echo "(could not auto-open a window here — use the resume line above)"
       fi
       rm -rf "$tmp" 2>/dev/null || true
@@ -282,6 +306,29 @@ the user outranks both). When it tells you it is standing down, carry on alone."
     echo "Fall back to native compaction (do nothing here); a structurally broken identity load is the signal to investigate." >&2
     rm -rf "$tmp" 2>/dev/null || true
     exit 1
+    ;;
+
+  peek)
+    # Every finished turn writes one system/stop_hook_summary entry: one event per
+    # turn, no duplicates, no notion of "idle" to misread. tail -n 0: only turns
+    # finished from now on. tail -F waits for the file if it is not there yet.
+    id="${2:-}"; id=${id//[^A-Za-z0-9-]/}
+    [ -n "$id" ] || { echo "usage: succeed.sh peek <successor-id>" >&2; exit 2; }
+    WATCH="${LEX_CLAUDE_WATCH_TURNS:-3}"
+    case "$WATCH" in *[!0-9]*|"") WATCH=3 ;; esac
+    t="$(projects_dir "$PWD")/$id.jsonl"
+    fifo="$(mktemp -u 2>/dev/null || echo "/tmp/lc-peek.$$")"
+    mkfifo "$fifo" || { echo "succeed.sh peek: mkfifo failed" >&2; exit 1; }
+    tail -n 0 -F "$t" > "$fifo" 2>/dev/null & tailpid=$!
+    trap 'kill "$tailpid" 2>/dev/null; rm -f "$fifo"' EXIT
+    n=0
+    while [ "$n" -lt "$WATCH" ] && IFS= read -r line; do
+      case "$line" in *stop_hook_summary*) ;; *) continue ;; esac
+      printf '%s' "$line" | jq -e 'select(.type=="system" and .subtype=="stop_hook_summary")' >/dev/null 2>&1 || continue
+      n=$((n+1))
+      echo "successor turn $n/$WATCH finished: run  succeed.sh turn $id"
+    done < "$fifo"
+    echo "peek done: $n/$WATCH watched turns finished"
     ;;
 
   turn)
@@ -300,7 +347,7 @@ the user outranks both). When it tells you it is standing down, carry on alone."
     ;;
 
   *)
-    echo "usage: succeed.sh check | run [--open] [--briefing <file>] [--from <peer>] | turn <id>" >&2
+    echo "usage: succeed.sh check | run [--open] [--briefing <file>] [--from <peer>] | peek <id> | turn <id>" >&2
     exit 2
     ;;
 esac
