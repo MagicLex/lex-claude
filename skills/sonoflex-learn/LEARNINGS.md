@@ -2,6 +2,25 @@
 
 Human-readable trail of the autonomous learning loop. One section per pass. Newest on top. Every line here is also in `ledger.jsonl` (with evidence) and in `sonoflex.md`'s LC_LEARNED block. Revert any of it via git.
 
+## 2026-10-04 — pass #8 (107 files scanned, 30 candidates)
+
+Promoted: none this pass.
+
+Bumped (recurrence only, already promoted):
+- Designer's eye / rejects default-slop aesthetics → recurrence 3→4, now also seen on motion-graphics direction, not just web/UI. _("moi je veux du flat art - big typo. clear massive shapes... not like something that is default slop")_
+
+New in ledger, not yet promoted (recurrence 1, watching for a repeat):
+- Anticipates shared-output collisions before they happen: wants a shared folder organized by category proactively, before multiple sessions/agents turn it into a mess. _("please org the output folder per category it will be a mess between everyones adding shit")_
+- On security/abuse remediation, calibrates to realistic likelihood rather than a maximal attacker-with-an-eng-team scenario; expensive low-likelihood fixes get noted for later, not built now. _("lets be balanced here nobody will... this is heavy shit to do... mitigate what is realistically going to happen... we note it for the future")_
+
+Confirmed (already in the curated persona or an earlier promoted lesson, no new line):
+- "Hors scope n'existe pas" / no bloat (RULES) covers the jevworks rotation pushback ("no i dont quite see the point") - questioning unjustified added scope, not a new lesson.
+- Act on reversible, ask on irreversible (sonoflex persona) covers the dev0-cluster-destruction exchange - agent correctly paused and asked before an irreversible action, not a violation.
+
+Scanner note: same noise pattern as recent passes - vibe-audio music-production feedback (5 of 30 candidates, domain taste not persona), hopsworks-animation creative-direction notes (7 candidates, mostly project-specific except the default-slop aesthetic bump above), and several clarifying questions/one-off task instructions with zero durable persona signal.
+
+Pruned: none - block still well under the ~22-line cap, no line contradicted or stale.
+
 ## 2026-09-27 — pass #7 (61 files scanned, 29 candidates)
 
 Promoted: none this pass.
