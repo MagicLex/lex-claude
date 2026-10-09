@@ -89,6 +89,7 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
   - Navigate: `open <url>`, `back`, `reload`; tabs: `tab list`, `tab <n>`
   - Custom widgets (Workday-style dropdowns): `eval` click the trigger, then `eval` click the `[role=option]`; native keypresses as fallback. Submit/primary buttons often ignore untrusted JS clicks: use native `click <sel>` or `find role button click --name X` (real CDP input).
   - Sessions: `--profile <name>` (real Chrome profile, see `profiles`), `--headed` for a visible window, `--executable-path` for real Chrome (Google SSO rejects Chrome for Testing, even manual).
+  - Attach, don't relaunch: `--auto-connect` drives the Chrome already running, with its logins. One-time setup: enable remote debugging at `chrome://inspect/#remote-debugging` (Chrome 144+), then click Allow on first attach.
   - Instrument: `console`, `errors`, `network requests`; guard rails: `--json`, `--max-output`.
   - Use for: local dev UI tests, UI bug repro, frontend verification, form automation.
 <!-- LC_RULES_END -->
