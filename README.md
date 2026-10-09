@@ -100,6 +100,22 @@ Run inside the venv where `hops` lives (uv targets the active env). Skill relink
 
 **Auto-update**: `lc` checks `origin/main` 1× / 24h, but only on unknown commands. The known local subcommands (`install` `update` `identity` `rules` `lang` `skip` `version` `github-login` `awake` `codex` `init` `doctor` `usage` `help`) skip the network check. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
+### agent-browser-bg
+
+Stock agent-browser (up to v0.38.2) calls `Page.bringToFront` when it creates or switches tabs, so `--auto-connect` pulls Chrome over whatever app you are in. Upstream issue [#1247](https://github.com/vercel-labs/agent-browser/issues/1247), fix in PR [#1880](https://github.com/vercel-labs/agent-browser/pull/1880), not merged yet. Until it ships, build v0.38.2 plus that PR as a separate binary and pin brew to the same base:
+
+```
+brew install rust
+git clone https://github.com/vercel-labs/agent-browser.git && cd agent-browser
+git checkout -b bg v0.38.2
+git fetch origin pull/1880/head:pr-1880 && git cherry-pick pr-1880
+cd cli && cargo build --release
+ln -sf "$PWD/target/release/agent-browser" ~/.local/bin/agent-browser-bg
+brew upgrade agent-browser && brew pin agent-browser   # stock stays at the same base
+```
+
+Check: `agent-browser-bg --auto-connect tab new https://example.com` opens a tab and your terminal keeps focus. Background tabs cannot be screenshotted; run `agent-browser-bg bringtofront` first. Once upstream ships the fix: `brew unpin agent-browser && brew upgrade agent-browser`, delete the clone and the symlink, and drop the `agent-browser-bg` line from `RULES.md`.
+
 ## Kill switches (env vars)
 
 Three escape hatches if you want to neutralise a piece without uninstalling.
