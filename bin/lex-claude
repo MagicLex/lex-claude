@@ -30,6 +30,16 @@ reset_managed_tree() {
   git -C "$INSTALL_DIR" reset --hard HEAD --quiet || true
 }
 
+sync_install() {
+  # sonoflex-learn commits into the install dir and never pushes. Rebase those
+  # commits onto origin and publish them, or the next ff-only pull diverges.
+  reset_managed_tree
+  git -C "$INSTALL_DIR" pull --rebase --quiet || { git -C "$INSTALL_DIR" rebase --abort 2>/dev/null; return 1; }
+  [ -z "$(git -C "$INSTALL_DIR" rev-list '@{u}..HEAD' 2>/dev/null)" ] && return 0
+  GIT_TERMINAL_PROMPT=0 git -C "$INSTALL_DIR" push --quiet \
+    || echo "lex-claude: local commits not pushed, kept for the next update" >&2
+}
+
 auto_update() {
   [ "${LEX_CLAUDE_NO_AUTO_UPDATE:-}" = "1" ] && return 0
   [ -d "$INSTALL_DIR/.git" ] || return 0
@@ -45,9 +55,8 @@ auto_update() {
   local_sha=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null) || return 0
   remote_sha=$(git -C "$INSTALL_DIR" rev-parse '@{u}' 2>/dev/null) || return 0
   [ "$local_sha" = "$remote_sha" ] && return 0
-  echo "lex-claude: newer version on origin. updating..."
-  reset_managed_tree
-  git -C "$INSTALL_DIR" pull --ff-only --quiet 2>/dev/null || { echo "lex-claude: auto-update failed (non-ff or conflict). run 'lc update' manually" >&2; return 0; }
+  echo "lex-claude: install out of sync with origin. updating..."
+  sync_install 2>/dev/null || { echo "lex-claude: auto-update failed (rebase conflict). run 'lc update' manually" >&2; return 0; }
   # Deploy via the freshly pulled binary, not the stale in-memory functions.
   "$INSTALL_DIR/bin/lex-claude" __deploy >/dev/null
   echo "lex-claude: updated, re-running."
@@ -387,8 +396,7 @@ cmd_install() {
 
 cmd_update() {
   [ -d "$INSTALL_DIR/.git" ] || die "not installed. run: lex-claude install"
-  reset_managed_tree
-  git -C "$INSTALL_DIR" pull --ff-only
+  sync_install || die "rebase onto origin failed in $INSTALL_DIR, resolve by hand"
   # Re-exec the freshly pulled binary for the deploy. Calling the in-memory
   # deploy would run the pre-pull functions (stale wire_hook, etc).
   exec "$INSTALL_DIR/bin/lex-claude" __deploy
