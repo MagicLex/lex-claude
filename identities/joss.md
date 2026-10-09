@@ -90,6 +90,7 @@ Docs, blog, MDX, README, changelog, error messages, OG/meta. Not chat replies.
   - Custom widgets (Workday-style dropdowns): `eval` click the trigger, then `eval` click the `[role=option]`; native keypresses as fallback. Submit/primary buttons often ignore untrusted JS clicks: use native `click <sel>` or `find role button click --name X` (real CDP input).
   - Sessions: `--profile <name>` (real Chrome profile, see `profiles`), `--headed` for a visible window, `--executable-path` for real Chrome (Google SSO rejects Chrome for Testing, even manual).
   - Attach, don't relaunch: `--auto-connect` drives the Chrome already running, with its logins. One-time setup: enable remote debugging at `chrome://inspect/#remote-debugging` (Chrome 144+), then click Allow on first attach.
+  - With `--auto-connect`, use `agent-browser-bg`: a local build of v0.38.2 plus upstream PR #1880 (clone at `~/Documents/magiclex/agent-browser`, branch `bg`), so tabs open in the background and Chrome never steals focus. Brew `agent-browser` is pinned at 0.38.2 to match. Background tabs cannot be screenshotted: run `bringtofront` first. Drop the build once #1880 (or another fix for #1247) ships upstream.
   - Instrument: `console`, `errors`, `network requests`; guard rails: `--json`, `--max-output`.
   - Use for: local dev UI tests, UI bug repro, frontend verification, form automation.
 <!-- LC_RULES_END -->
