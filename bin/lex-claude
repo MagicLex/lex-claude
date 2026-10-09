@@ -1343,7 +1343,7 @@ cmd_claude() {
   # No auth → every -p turn returns an error blob, subject and judge alike.
   # Rerolling cannot fix that; hand the seat over so claude runs its login flow.
   if [ "$("$claude_bin" auth status 2>/dev/null | jq -r '.loggedIn | tostring' 2>/dev/null)" = "false" ]; then
-    echo "lc: claude is not logged in — skipping the cold-start check. Log in, then relaunch." >&2
+    echo "lc: claude is not logged in. Skipping the cold-start check. Log in, then relaunch." >&2
     exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
   fi
 
@@ -1358,7 +1358,7 @@ cmd_claude() {
     # Cheap floor first: a broken identity symlink means nothing will load. Heal
     # and retry before spending a turn.
     if [ ! -L "$link" ] || [ ! -e "$link" ]; then
-      echo "lc: identity symlink missing/broken ($link) — attempt $attempt/$max." >&2
+      echo "lc: identity symlink missing/broken ($link), attempt $attempt/$max." >&2
       _coldstart_heal "$link"; attempt=$((attempt+1)); continue
     fi
     uuid=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
@@ -1370,7 +1370,7 @@ cmd_claude() {
     # -p reports API/auth failures as {"is_error":true,"result":"<message>"} with
     # exit 0. That is not identity drift: judging it or rerolling is pointless.
     if [ "$(jq -r '.is_error // false' "$tmp.raw" 2>/dev/null)" = "true" ]; then
-      echo "lc: preflight turn errored: $(jq -r '.result // empty' "$tmp.raw" | head -c 200) — launching unverified." >&2
+      echo "lc: preflight turn errored: $(jq -r '.result // empty' "$tmp.raw" | head -c 200). Launching unverified." >&2
       rm -f "$tmp" "$tmp.err" "$tmp.raw" "$pdir/$uuid.jsonl" 2>/dev/null || true
       exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
     fi
@@ -1385,13 +1385,13 @@ cmd_claude() {
     else
       reason="master: $(printf '%s' "$reason" | jq -r '.reason // empty' 2>/dev/null || printf '%s' "$reason")"
     fi
-    echo "lc: cold-start check failed (attempt $attempt/$max) — $reason — rerolling a fresh session." >&2
+    echo "lc: cold-start check failed (attempt $attempt/$max): $reason. Rerolling a fresh session." >&2
     rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true    # discard the rejected session
     _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
   rm -f "$tmp" "$tmp.err" "$tmp.raw"
-  echo "lc: WARNING — cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
+  echo "lc: WARNING: cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
   exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
 }
 
