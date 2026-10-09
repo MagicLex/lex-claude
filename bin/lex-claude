@@ -16,6 +16,7 @@ CODEX_SKILLS_DIR="$CODEX_DIR/skills"
 LANG_FILE="$INSTALL_DIR/.lang"
 MODEL_FILE="$INSTALL_DIR/.model"
 SKIP_FILE="$INSTALL_DIR/.skip"
+LID_RULE="/etc/sudoers.d/lex-claude-pmset"
 # ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
@@ -88,6 +89,7 @@ Usage:
   lex-claude github-login [--token TOKEN]            Wire gh + git auth. No args: auto-detect (already authed -> no-op; GH_TOKEN/GITHUB_TOKEN; device flow if tty; ssh agent for git-only). Also sets git author (user.name/email) when unset or pod default. Idempotent, safe in hooks/rc.
   lex-claude awake [duration]                        Keep Mac awake (caffeinate -dimsu). Examples: 30m, 2h, 1h30m. No arg = until 'awake off'.
   lex-claude awake --while <pid>                     Stay awake while <pid> is alive.
+  lex-claude awake --lid [duration|--while <pid>]    Also stay awake with the lid closed (pmset disablesleep, reverted on stop). First use installs a sudoers rule.
   lex-claude awake off|status                        Stop or inspect the assertion.
   lex-claude codex [prompt]                          Launch Codex with active identity + project docs injected as the initial prompt.
   lex-claude codex --print [prompt]                  Print the prompt that would be sent to Codex.
@@ -851,6 +853,35 @@ cmd_github_login() {
   die "no auth path: gh not authenticated, no GH_TOKEN/GITHUB_TOKEN, no ssh agent, no tty for device flow."
 }
 
+_sleep_disabled() {
+  [ "$(pmset -g 2>/dev/null | awk '/SleepDisabled/ {print $2}')" = "1" ]
+}
+
+# Kill an awake holder and wait for it to exit, so a --lid wrapper finishes its
+# disablesleep revert before anything else touches the flag.
+_awake_kill() {
+  kill "$1" 2>/dev/null || return 0
+  local i
+  for i in $(seq 1 50); do
+    kill -0 "$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  echo "awake: pid $1 did not exit within 5s" >&2
+}
+
+_awake_lid_on() {
+  sudo -n /usr/bin/pmset -a disablesleep 1 2>/dev/null && return
+  [ -t 0 ] || die "awake --lid: first run installs a sudoers rule and needs your sudo password. run it once in a terminal"
+  echo "awake: --lid installs $LID_RULE (one-time), allowing only 'pmset -a disablesleep 0|1' without a password"
+  local tmp; tmp=$(mktemp)
+  printf '%s\n' "# managed by lex-claude (lc awake --lid)" \
+    "$(id -un) ALL=(root) NOPASSWD: /usr/bin/pmset -a disablesleep 0, /usr/bin/pmset -a disablesleep 1" > "$tmp"
+  visudo -cf "$tmp" >/dev/null || { rm -f "$tmp"; die "awake --lid: generated sudoers rule failed visudo validation"; }
+  sudo install -m 0440 -o root -g wheel "$tmp" "$LID_RULE" || { rm -f "$tmp"; die "awake --lid: could not install $LID_RULE"; }
+  rm -f "$tmp"
+  sudo -n /usr/bin/pmset -a disablesleep 1 || die "awake --lid: $LID_RULE installed but pmset still asks for a password"
+}
+
 cmd_awake() {
   local pid_file="$HOME/.cache/lex-claude/awake.pid"
   mkdir -p "$(dirname "$pid_file")" 2>/dev/null || true
@@ -860,7 +891,7 @@ cmd_awake() {
       if [ -f "$pid_file" ]; then
         local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-          kill "$pid" 2>/dev/null
+          _awake_kill "$pid"
           rm -f "$pid_file"
           echo "awake: stopped (pid $pid)"
         else
@@ -870,23 +901,28 @@ cmd_awake() {
       else
         echo "awake: not active"
       fi
-      return
+      _sleep_disabled && echo "awake: SleepDisabled is still 1. revert: sudo pmset -a disablesleep 0"
+      return 0
       ;;
     status)
       if [ -f "$pid_file" ]; then
         local pid; pid=$(cat "$pid_file" 2>/dev/null || echo "")
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-          local cmdline; cmdline=$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^ *//')
+          # --lid runs caffeinate under a revert wrapper; show caffeinate itself.
+          local shown; shown=$(pgrep -P "$pid" caffeinate 2>/dev/null | head -1 || true)
+          local cmdline; cmdline=$(ps -p "${shown:-$pid}" -o command= 2>/dev/null | sed 's/^ *//')
           local started; started=$(ps -p "$pid" -o lstart= 2>/dev/null | sed 's/^ *//')
           echo "awake: active (pid $pid)"
           echo "       started: $started"
           echo "       command: $cmdline"
-          return
+          _sleep_disabled && echo "       lid: closing the lid will not sleep (SleepDisabled 1)"
+          return 0
         fi
         rm -f "$pid_file"
       fi
       echo "awake: not active"
-      return
+      _sleep_disabled && echo "awake: SleepDisabled is 1 with nothing holding it. revert: sudo pmset -a disablesleep 0"
+      return 0
       ;;
     -h|--help|help)
       cat <<'EOF'
@@ -895,6 +931,7 @@ lc awake. keep this Mac from sleeping while idle.
 Usage:
   lc awake [duration]        run until duration elapses (default: until 'lc awake off')
   lc awake --while <pid>     stay awake while <pid> is alive
+  lc awake --lid [...]       same, and keep running with the lid closed
   lc awake off               stop the active assertion
   lc awake status            show whether an assertion is held
 
@@ -903,12 +940,16 @@ Duration:
 
 Mechanism:
   Wraps `caffeinate -dimsu`. Blocks display sleep, idle sleep, disk sleep, and
-  declares the user active.
+  declares the user active. Caffeinate does not cover the lid: without --lid,
+  closing it still sleeps the Mac.
 
-Limit:
-  Closing the lid on Apple Silicon will still sleep the Mac. The lid switch is
-  routed through the SMC; no IOPMAssertion overrides it. To work lid-closed you
-  need clamshell mode: power adapter + external display (or an EDID dummy plug).
+--lid:
+  Sets `pmset -a disablesleep 1` (works on battery, verified on Apple Silicon)
+  and reverts it to 0 when the assertion ends: off, timeout, or --while pid exit.
+  The first run installs /etc/sudoers.d/lex-claude-pmset, allowing only
+  `pmset -a disablesleep 0|1` without a password. That run asks for your sudo
+  password once, so it needs a terminal. A closed Mac in a bag keeps running
+  hot until the assertion ends: give --lid a duration or a --while pid.
 EOF
       return
       ;;
@@ -916,9 +957,13 @@ EOF
 
   command -v caffeinate >/dev/null 2>&1 || die "caffeinate not found (macOS-only command)"
 
-  local target_pid="" duration_str=""
+  local target_pid="" duration_str="" lid=0
   while [ $# -gt 0 ]; do
     case "$1" in
+      --lid)
+        lid=1
+        shift
+        ;;
       --while|-w)
         target_pid="${2:-}"
         [ -n "$target_pid" ] || die "--while requires a pid"
@@ -959,7 +1004,7 @@ EOF
   if [ -f "$pid_file" ]; then
     local old; old=$(cat "$pid_file" 2>/dev/null || echo "")
     if [ -n "$old" ] && kill -0 "$old" 2>/dev/null; then
-      kill "$old" 2>/dev/null
+      _awake_kill "$old"
       echo "awake: replaced previous assertion (pid $old)"
     fi
     rm -f "$pid_file"
@@ -972,10 +1017,19 @@ EOF
     args+=(-t "$seconds")
   fi
 
-  nohup caffeinate "${args[@]}" >/dev/null 2>&1 &
+  if [ "$lid" -eq 1 ]; then
+    _awake_lid_on
+    nohup bash -c 'caffeinate "$@" & c=$!
+      trap "kill $c 2>/dev/null" TERM INT
+      wait $c; wait $c 2>/dev/null
+      sudo -n /usr/bin/pmset -a disablesleep 0' lc-awake "${args[@]}" >/dev/null 2>&1 &
+  else
+    nohup caffeinate "${args[@]}" >/dev/null 2>&1 &
+  fi
   local pid=$!
   disown "$pid" 2>/dev/null || true
   echo "$pid" > "$pid_file"
+  [ "$lid" -eq 1 ] && echo "awake: lid-closed sleep disabled until this assertion ends"
 
   if [ -n "$target_pid" ]; then
     echo "awake: pid $pid, while pid $target_pid is alive"
@@ -1068,7 +1122,7 @@ _lc() {
     'doctor:sanity-check the install'
     'version:print install version'
   )
-  awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid')
+  awake_cmds=('off:stop' 'status:inspect' 'help:show help' '--while:tie to a pid' '--lid:also stay awake lid-closed')
   codex_cmds=('--print:dump the generated prompt' '--lite:load identity + project CLAUDE.md only' '--full:load full docs bundle' 'help:show help')
   init_cmds=('zsh:zsh completion' 'bash:bash completion' 'claude:dump SessionStart context')
   install_cmds=('--yes:skip overwrite prompt' '--hops-only:install only the hopsdev binary')
@@ -1111,7 +1165,7 @@ _lc() {
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
-    awake)         COMPREPLY=( $(compgen -W "off status help --while" -- "$cur") ) ;;
+    awake)         COMPREPLY=( $(compgen -W "off status help --while --lid" -- "$cur") ) ;;
     codex)         COMPREPLY=( $(compgen -W "--print --lite --full help" -- "$cur") ) ;;
     init)          COMPREPLY=( $(compgen -W "zsh bash claude" -- "$cur") ) ;;
     identity)      COMPREPLY=( $(compgen -W "new" -- "$cur") ) ;;
@@ -1146,6 +1200,7 @@ Available subcommands (run with `lc <cmd>`):
 - `skip on|off|status`                        toggle shell wrapper for Claude and Codex permission bypass
 - `awake [30m|2h|1h30m|45s|N]`                keep Mac awake (caffeinate -dimsu)
 - `awake --while <pid>`                       stay awake while pid is alive
+- `awake --lid [duration|--while <pid>]`      also stay awake lid-closed (pmset disablesleep, reverted on stop)
 - `awake off`                                 stop the active assertion
 - `awake status`                              inspect (shows pid, started, command)
 - `codex [--lite|--full] [prompt]`            launch Codex with lex-claude context preloaded
@@ -1169,9 +1224,12 @@ CLI at a hopsworks-api branch):
 - `lc install --hops-only`                     install just `hopsdev` (no identity/rules/skills/hook)
 
 Notes:
-- `lc awake` cannot bypass lid-close sleep on Apple Silicon. The lid switch is
-  routed through the SMC in firmware; no IOPMAssertion overrides it. Clamshell
-  mode (power + external display, or an EDID dummy plug) is the only path.
+- Plain `lc awake` does not survive closing the lid: caffeinate assertions do
+  not cover it. `lc awake --lid` does (pmset disablesleep, verified on Apple
+  Silicon on battery) and reverts it when the assertion ends (off, timeout,
+  --while pid exit). Its first run installs /etc/sudoers.d/lex-claude-pmset,
+  which allows only `pmset -a disablesleep 0|1` without a password; that one
+  run needs a terminal for the sudo prompt. Clamshell mode is the other path.
 - The active identity (and its rules) is symlinked at ~/.claude/CLAUDE.md.
 - The statusline at ~/.claude/statusline-command.sh is also managed (renders
   dir, git status, identity, lang (if set), a token meter that turns red
@@ -1283,6 +1341,10 @@ cmd_doctor() {
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
   [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
+  if command -v pmset >/dev/null 2>&1; then
+    [ -f "$LID_RULE" ] && echo "ok    awake --lid rule ($LID_RULE)" || echo "ok    awake --lid: not set up (first 'lc awake --lid' installs the rule)"
+    _sleep_disabled && echo "warn  SleepDisabled is 1: the lid will not sleep this Mac. 'lc awake status' shows if lc holds it"
+  fi
   [ $ok -eq 1 ] && echo "all good." || { echo "issues. run: lex-claude install"; exit 1; }
 }
 
