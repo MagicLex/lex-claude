@@ -13,6 +13,7 @@
 - KISS > LoB > DRY > SOLID. Remove more code than you add. Small incremental changes.
 - Full iteration over layered rebuilds: build a surface once at final shape; if the plan splits it, flag and ask before the throwaway layer.
 - On naming/api issues, broad-search the codebase first. The issue is usually elsewhere too.
+- Comment only the non-obvious why (workaround, invariant, edge case). No line-by-line narration.
 - Integration tests > unit tests. CLI debugging > prints. Bounded active polling > passive waits.
 - Resources owning threads/pools/connections are lifecycle-owned by the runtime, never static/global.
 - User-facing text (docs, README, errors): no em dashes, no "not X, it's Y". Reference, not editorial.
