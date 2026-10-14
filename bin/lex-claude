@@ -550,7 +550,7 @@ SKIP_BEGIN_OLD='# >>> lex-claude skip >>>'
 SKIP_END_OLD='# <<< lex-claude skip <<<'
 FN_BEGIN='# >>> lex-claude claude >>>'
 FN_END='# <<< lex-claude claude <<<'
-FN_MARK='lex-claude claude router v2'   # bump when _claude_fn_block changes → old blocks get replaced
+FN_MARK='lex-claude claude router v3'   # bump when _claude_fn_block changes → old blocks get replaced
 
 rc_file() {
   case "$(basename "${SHELL:-}")" in
@@ -568,12 +568,25 @@ _strip_rc_block() {
 
 _claude_fn_block() {
   cat <<'BLOCK'
-# lex-claude claude router v2 — routes `claude` through `lc claude` so every
+# lex-claude claude router v3 — routes `claude` through `lc claude` so every
 # interactive launch gets the cold-start identity/rules check. Model and skip
 # flags are applied by `lc claude` itself. `command claude` bypasses this.
-claude() {
-  command lex-claude claude "$@"
+# Terminals that ship their own claude wrapper (cmux) redefine claude() after
+# this rc runs, so the router is re-installed before each command (zsh preexec,
+# bash PROMPT_COMMAND). `lc claude` resolves claude via PATH, so the terminal's
+# shim still wraps the real binary.
+_lc_claude_router() {
+  claude() { command lex-claude claude "$@"; }
 }
+_lc_claude_router
+if [ -n "${ZSH_VERSION:-}" ]; then
+  autoload -Uz add-zsh-hook && add-zsh-hook preexec _lc_claude_router
+elif [ -n "${BASH_VERSION:-}" ]; then
+  case ";${PROMPT_COMMAND:-};" in
+    *";_lc_claude_router;"*) ;;
+    *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_lc_claude_router" ;;
+  esac
+fi
 codex() {
   local _f=()
   [ -f "$HOME/.claude/lex-claude/.skip" ] && _f+=(--dangerously-bypass-approvals-and-sandbox)
