@@ -130,8 +130,13 @@ open_successor() {
   case "$app" in
     cmux)
       # cmux prints "OK workspace:N" on success and "Error: ..." (exit != 0) otherwise.
-      err=$(CMUX_QUIET=1 cmux workspace create --name "successor ${id%%-*}" --cwd "$dir" \
-        --command "$launcher" --focus true 2>&1) && err="" ;;
+      # The agent renames the workspace once claude starts; the description stays
+      # and marks it as a successor in the sidebar (same lineage as the statusline).
+      local gen="" parent="" desc="successor"
+      [ -f "$LINEAGE_DIR/$id" ] && IFS=$'\t' read -r gen parent < "$LINEAGE_DIR/$id"
+      [ -n "$gen" ] && [ -n "$parent" ] && desc="successor gen$gen ←$(printf '%s' "${parent:0:8}" | tr 'A-Z' 'a-z')"
+      err=$(CMUX_QUIET=1 cmux workspace create --name "successor ${id%%-*}" --description "$desc" \
+        --cwd "$dir" --command "$launcher" --focus true 2>&1) && err="" ;;
     iTerm)
       err=$(osascript 2>&1 >/dev/null <<OSA
 tell application "iTerm"
