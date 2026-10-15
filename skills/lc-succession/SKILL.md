@@ -49,7 +49,7 @@ Steps, in order:
    drifts off track. `--from` tells the successor to message you by name once it
    is resumed, which gives you its address for corrections (step 4). `--open` pops the
    verified successor in a new terminal window with a kickoff prompt, so it starts
-   the work on its own (macOS: iTerm / Terminal.app;
+   the work on its own (macOS: cmux workspace / iTerm / Terminal.app;
    other terminals fall back to the printed resume line; an open failure prints
    its cause). Progress on stderr; outcome on stdout.
 

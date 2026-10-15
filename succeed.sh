@@ -95,7 +95,9 @@ projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | s
 KICKOFF="Resumed after the handover: take over the briefed work now. Start with the opening move you gave, then carry on."
 
 # Open the verified successor in a NEW terminal window running `claude --resume`.
-# macOS only, iTerm + Terminal.app. The window runs a tiny launcher script (cd,
+# macOS only: cmux (new workspace, via its CLI), iTerm, Terminal.app. cmux is
+# checked first: inside it TERM_PROGRAM reads ghostty and neither iTerm nor
+# Terminal may be running. The window runs a tiny launcher script (cd,
 # then a login+interactive zsh so PATH/aliases resolve exactly as in the user's
 # shell) as the session's own command: no typing text into a shell that may not
 # be ready yet. Failures are reported on stderr, not swallowed — a silent
@@ -104,15 +106,16 @@ open_successor() {
   local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
   launcher="$WATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
   case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not macOS, no auto-open" >&2; return 1 ;; esac
-  command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
   case "${TERM_PROGRAM:-}" in
     iTerm.app) app=iTerm ;;
     Apple_Terminal) app=Terminal ;;
     *) # TERM_PROGRAM may not reach a hook/tool shell; use whichever is running.
-       if pgrep -xq iTerm2 2>/dev/null; then app=iTerm
+       if [ -n "${CMUX_SOCKET_PATH:-}" ] && command -v cmux >/dev/null 2>&1; then app=cmux
+       elif pgrep -xq iTerm2 2>/dev/null; then app=iTerm
        elif pgrep -xq Terminal 2>/dev/null; then app=Terminal
-       else echo "   open: no iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
+       else echo "   open: no cmux/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
   esac
+  [ "$app" = cmux ] || command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
   mkdir -p "$WATCH_DIR" 2>/dev/null || return 1
   # Single-quote the dir for the shell ('\'' escapes an embedded quote).
   qdir=$(printf '%s' "$dir" | sed "s/'/'\\\\''/g")
@@ -125,6 +128,10 @@ open_successor() {
     printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s%s; else claude --resume %s%s; fi'\n" "$qdir" "$id" "$kick" "$id" "$kick"
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
+    cmux)
+      # cmux prints "OK workspace:N" on success and "Error: ..." (exit != 0) otherwise.
+      err=$(CMUX_QUIET=1 cmux workspace create --name "successor ${id%%-*}" --cwd "$dir" \
+        --command "$launcher" --focus true 2>&1) && err="" ;;
     iTerm)
       err=$(osascript 2>&1 >/dev/null <<OSA
 tell application "iTerm"
