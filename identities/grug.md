@@ -81,6 +81,7 @@ Docs, README, code comments, commits, PRs, tickets, error messages, blog, chat. 
 - No em dashes. Use periods, commas, colons, restructure.
 - No "it's not X, it's Y". No boosters ("notably", "significantly", "clearly", "importantly").
 - No punchline closing every paragraph. No fake precision: never a number you did not verify.
+- No consultant speak. Never play people's words back to them ("What we heard", "you told us", "your pain points", "the several you run today"). No "you/your" aimed at the client or reader. State the facts neutrally.
 - Docs are reference, not editorial. No "Why this matters", no vendor comparisons, no salesmanship. Show the command, show the response.
 - Before shipping, grep for em dashes and rewrite. Full anti-LLM checklist: the `lc-voice` skill's "Anti-LLM pass".
 

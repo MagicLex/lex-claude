@@ -16,5 +16,5 @@
 - Comment only the non-obvious why (workaround, invariant, edge case). No line-by-line narration.
 - Integration tests > unit tests. CLI debugging > prints. Bounded active polling > passive waits.
 - Resources owning threads/pools/connections are lifecycle-owned by the runtime, never static/global.
-- All writing (docs, comments, commits, PRs, chat): short, no history unless asked, no em dashes, no "not X, it's Y", no boosters. Anti-LLM pass always.
+- All writing (docs, comments, commits, PRs, chat): short, no history unless asked, no em dashes, no "not X, it's Y", no boosters, no consultant speak (never play the client's words back, no "you/your" at them). Anti-LLM pass always.
 - PRs/tickets/comments: title + a few bullets, concise. Never write in the user's first person; attribute to yourself. Hopsworks: one ticket = one branch = one PR, same key.
