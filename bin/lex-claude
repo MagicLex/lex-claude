@@ -342,7 +342,7 @@ cmd_install() {
       git -C "$INSTALL_DIR" pull --ff-only
     else
       mkdir -p "$(dirname "$INSTALL_DIR")"
-      git clone "$REPO_URL" "$INSTALL_DIR"
+      clone_install
     fi
     deploy_hops_only
     echo "done. hopsdev only (no identity/rules/skills/hook touched)."
@@ -373,7 +373,7 @@ cmd_install() {
     git -C "$INSTALL_DIR" pull --ff-only
   else
     mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    clone_install
   fi
 
   if [ "${LEX_CLAUDE_INSTALL_REEXEC:-}" != "1" ] && [ -x "$INSTALL_DIR/bin/lex-claude" ]; then
@@ -394,6 +394,19 @@ cmd_update() {
   # Re-exec the freshly pulled binary for the deploy. Calling the in-memory
   # deploy would run the pre-pull functions (stale wire_hook, etc).
   exec "$INSTALL_DIR/bin/lex-claude" __deploy
+}
+
+# Clone into a temp dir, then swap in. A fresh INSTALL_DIR may already hold
+# state (usage.log written by the logger before the first clone); keep it.
+clone_install() {
+  local tmp="$INSTALL_DIR.clone.$$"
+  rm -rf "$tmp"
+  git clone "$REPO_URL" "$tmp" || { rm -rf "$tmp"; die "clone failed: $REPO_URL"; }
+  if [ -d "$INSTALL_DIR" ]; then
+    cp -Rn "$INSTALL_DIR"/. "$tmp"/ 2>/dev/null || true
+    rm -rf "$INSTALL_DIR"
+  fi
+  mv "$tmp" "$INSTALL_DIR"
 }
 
 sync_rules() {
@@ -1417,7 +1430,10 @@ cmd_claude() {
   local max="${LEX_CLAUDE_SUCCESSION_MAX:-3}"; case "$max" in *[!0-9]*|"") max=3 ;; esac
   local link="$CLAUDE_DIR/CLAUDE.md"
   local pdir="$HOME/.claude/projects/$(printf '%s' "$PWD" | sed 's#[^A-Za-z0-9]#-#g')"
-  local tmp; tmp=$(mktemp 2>/dev/null) || tmp="/tmp/lc-preflight.$$"
+  # Private 0700 dir for the preflight files; no predictable /tmp fallback.
+  local tmpd; tmpd=$(mktemp -d 2>/dev/null) \
+    || { echo "lc: cannot create a temp dir; launching unverified." >&2; exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"; }
+  local tmp="$tmpd/answer"
   local prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
 
   local attempt=1 uuid
@@ -1429,7 +1445,7 @@ cmd_claude() {
       _coldstart_heal "$link"; attempt=$((attempt+1)); continue
     fi
     uuid=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
-    [ -n "$uuid" ] || { echo "lc: no uuid source; launching raw." >&2; rm -f "$tmp"; exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"; }
+    [ -n "$uuid" ] || { echo "lc: no uuid source; launching raw." >&2; rm -rf "$tmpd"; exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"; }
     # Verify the REAL session: run the identity self-report as turn 1 of the
     # persisted session, judge THAT turn. set -e/pipefail: a failed turn rerolls.
     # Keep the failure reason: a silent 3/3 reroll is undebuggable.
@@ -1438,26 +1454,28 @@ cmd_claude() {
     # exit 0. That is not identity drift: judging it or rerolling is pointless.
     if [ "$(jq -r '.is_error // false' "$tmp.raw" 2>/dev/null)" = "true" ]; then
       echo "lc: preflight turn errored: $(jq -r '.result // empty' "$tmp.raw" | head -c 200). Launching unverified." >&2
-      rm -f "$tmp" "$tmp.err" "$tmp.raw" "$pdir/$uuid.jsonl" 2>/dev/null || true
+      rm -rf "$tmpd" "$pdir/$uuid.jsonl" 2>/dev/null || true
       exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
     fi
     jq -r '.result // empty' "$tmp.raw" > "$tmp" 2>/dev/null || true
     local reason
     if [ ! -s "$tmp" ]; then
       reason="preflight turn produced no answer: $(tail -n1 "$tmp.err" 2>/dev/null || echo 'no stderr')"
-    elif reason=$("$master" verify --answer "$tmp" --phase identity 2>/dev/null); then
-      rm -f "$tmp" "$tmp.err" "$tmp.raw"
+    elif reason=$("$master" verify --answer "$tmp" --phase identity 2>"$tmp.merr"); then
+      rm -rf "$tmpd"
       # Hand over the verified session itself; your work continues as turn 2+.
       exec "$claude_bin" ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
     else
       reason="master: $(printf '%s' "$reason" | jq -r '.reason // empty' 2>/dev/null || printf '%s' "$reason")"
+      # An empty verdict means the judge itself broke: show why instead of "master: ."
+      [ "$reason" = "master: " ] && reason="master error: $(tail -n1 "$tmp.merr" 2>/dev/null | cut -c1-200)"
     fi
     echo "lc: cold-start check failed (attempt $attempt/$max): $reason. Rerolling a fresh session." >&2
     rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true    # discard the rejected session
     _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
-  rm -f "$tmp" "$tmp.err" "$tmp.raw"
+  rm -rf "$tmpd"
   echo "lc: WARNING: cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
   exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
 }
