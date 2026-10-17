@@ -342,7 +342,7 @@ cmd_install() {
       git -C "$INSTALL_DIR" pull --ff-only
     else
       mkdir -p "$(dirname "$INSTALL_DIR")"
-      git clone "$REPO_URL" "$INSTALL_DIR"
+      clone_install
     fi
     deploy_hops_only
     echo "done. hopsdev only (no identity/rules/skills/hook touched)."
@@ -373,7 +373,7 @@ cmd_install() {
     git -C "$INSTALL_DIR" pull --ff-only
   else
     mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone "$REPO_URL" "$INSTALL_DIR"
+    clone_install
   fi
 
   if [ "${LEX_CLAUDE_INSTALL_REEXEC:-}" != "1" ] && [ -x "$INSTALL_DIR/bin/lex-claude" ]; then
@@ -394,6 +394,19 @@ cmd_update() {
   # Re-exec the freshly pulled binary for the deploy. Calling the in-memory
   # deploy would run the pre-pull functions (stale wire_hook, etc).
   exec "$INSTALL_DIR/bin/lex-claude" __deploy
+}
+
+# Clone into a temp dir, then swap in. A fresh INSTALL_DIR may already hold
+# state (usage.log written by the logger before the first clone); keep it.
+clone_install() {
+  local tmp="$INSTALL_DIR.clone.$$"
+  rm -rf "$tmp"
+  git clone "$REPO_URL" "$tmp" || { rm -rf "$tmp"; die "clone failed: $REPO_URL"; }
+  if [ -d "$INSTALL_DIR" ]; then
+    cp -Rn "$INSTALL_DIR"/. "$tmp"/ 2>/dev/null || true
+    rm -rf "$INSTALL_DIR"
+  fi
+  mv "$tmp" "$INSTALL_DIR"
 }
 
 sync_rules() {
@@ -1445,19 +1458,21 @@ cmd_claude() {
     local reason
     if [ ! -s "$tmp" ]; then
       reason="preflight turn produced no answer: $(tail -n1 "$tmp.err" 2>/dev/null || echo 'no stderr')"
-    elif reason=$("$master" verify --answer "$tmp" --phase identity 2>/dev/null); then
-      rm -f "$tmp" "$tmp.err" "$tmp.raw"
+    elif reason=$("$master" verify --answer "$tmp" --phase identity 2>"$tmp.merr"); then
+      rm -f "$tmp" "$tmp.err" "$tmp.raw" "$tmp.merr"
       # Hand over the verified session itself; your work continues as turn 2+.
       exec "$claude_bin" ${_f[@]+"${_f[@]}"} --resume "$uuid" "$@"
     else
       reason="master: $(printf '%s' "$reason" | jq -r '.reason // empty' 2>/dev/null || printf '%s' "$reason")"
+      # An empty verdict means the judge itself broke: show why instead of "master: ."
+      [ "$reason" = "master: " ] && reason="master error: $(tail -n1 "$tmp.merr" 2>/dev/null | cut -c1-200)"
     fi
     echo "lc: cold-start check failed (attempt $attempt/$max): $reason. Rerolling a fresh session." >&2
     rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true    # discard the rejected session
     _coldstart_heal "$link"
     attempt=$((attempt+1))
   done
-  rm -f "$tmp" "$tmp.err" "$tmp.raw"
+  rm -f "$tmp" "$tmp.err" "$tmp.raw" "$tmp.merr"
   echo "lc: WARNING: cold-start verification failed $max times. Identity load looks structurally broken; run 'lc doctor'. Launching anyway (unverified)." >&2
   exec "$claude_bin" ${_f[@]+"${_f[@]}"} "$@"
 }
