@@ -1385,6 +1385,9 @@ cmd_claude() {
   # /usr/bin/command shim exists (macOS); Linux has none → "exec: command: not
   # found". type -P is path-only, so the rc router function is never re-entered.
   local claude_bin; claude_bin=$(type -P claude) || die "claude not found in PATH"
+  # A seat launched here is top-level. A child-session marker inherited from a
+  # terminal app started inside Claude disables transcript persistence.
+  unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION
   local _f=()
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)

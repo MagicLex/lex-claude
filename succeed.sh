@@ -121,6 +121,9 @@ open_successor() {
   qdir=$(printf '%s' "$dir" | sed "s/'/'\\\\''/g")
   {
     printf '#!/bin/bash\n'
+    # The terminal app may itself have been launched from a Claude session and
+    # leak the child-session marker into every shell it opens.
+    printf 'unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION\n'
     # lc claude passes --resume through with the pinned model + permission flags,
     # so predecessor and successor run in the same mode (cross-session messages
     # between different permission modes are held for approval). Raw claude if
@@ -235,6 +238,10 @@ case "${1:-}" in
     tmp=$(mktemp -d 2>/dev/null) || tmp="/tmp/lc-succ.$$"
     mkdir -p "$tmp" 2>/dev/null || true
     pdir=$(projects_dir "$PWD")
+    # This runs from the predecessor's Bash tool, which marks children as child
+    # sessions. A marked session is not persisted, so `--resume <uuid>` on the
+    # successor would find nothing. The successor is a top-level session.
+    unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION
 
     id_prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
 
