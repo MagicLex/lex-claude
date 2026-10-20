@@ -204,6 +204,8 @@ Identity and rules loading is verified live by a judge. Work near the context li
 
 `etat.sh` at `SessionStart` injects the active identity and the live git line. That is the état the opener reports and the master verifies against.
 
+`cmux-name.sh` at `SessionStart` names the cmux workspace after the session's agent name (the `ListAgents` / `SendMessage` name, e.g. `hopsable-87`, from `~/.claude/sessions/<pid>.json`). A title that already holds the name is left alone. A title that starts with an older name of the same project gets that prefix swapped and keeps the rest, so `hopsable 91 (lead)` becomes `hopsable-6d (lead)`. A default title (`Claude Code`, a path, the dir name, `successor <id>`) becomes the name. Any other title gets the name prefixed. No-op outside cmux.
+
 The flow lives at the harness level, so every identity gets it. Codex has no hooks, so no succession there.
 
 Kill switch: `LEX_CLAUDE_HANDOFF_DISABLE=1` disables the trigger, the watch and the succession. `git revert` + `lc update` removes the wiring.
@@ -251,6 +253,7 @@ lex-claude/
 ├── succeed.sh                   ← Stop-hook token trigger + successor watch + succession reroll loop
 ├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
+├── cmux-name.sh                 ← SessionStart: cmux workspace title = agent name
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)

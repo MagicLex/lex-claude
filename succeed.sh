@@ -133,7 +133,7 @@ open_successor() {
   case "$app" in
     cmux)
       # cmux prints "OK workspace:N" on success and "Error: ..." (exit != 0) otherwise.
-      # The agent renames the workspace once claude starts; the description stays
+      # cmux-name.sh renames the workspace to the agent name once claude starts; the description stays
       # and marks it as a successor in the sidebar (same lineage as the statusline).
       local gen="" parent="" desc="successor"
       [ -f "$LINEAGE_DIR/$id" ] && IFS=$'\t' read -r gen parent < "$LINEAGE_DIR/$id"

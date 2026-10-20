@@ -142,6 +142,7 @@ wire_hook() {
   local dcmd="bash $INSTALL_DIR/digest.sh"
   local scmd="bash $INSTALL_DIR/style.sh"
   local sucmd="bash $INSTALL_DIR/succeed.sh"
+  local ncmd="bash $INSTALL_DIR/cmux-name.sh"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -162,16 +163,17 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
       .hooks.SessionStart[]
-      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch")) | not))
+      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch") or test("lex-claude/cmux-name")) | not))
     ] |
     .hooks.SessionStart += [
       {"hooks":[{"type":"command","command":$cmd}]},
-      {"hooks":[{"type":"command","command":$wcmd}]}
+      {"hooks":[{"type":"command","command":$wcmd}]},
+      {"hooks":[{"type":"command","command":$ncmd}]}
     ] |
     .hooks.FileChanged //= [] |
     .hooks.FileChanged = [
