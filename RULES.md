@@ -24,7 +24,7 @@
 - On naming/api issues, broad-search the codebase before fixing. The issue is usually elsewhere too.
 - Log strategically at decision points only. No noise.
 - Comment sparingly. Code says what, a comment says why, and only where the why isn't obvious (a workaround, a non-obvious invariant, a tricky edge case, a magic value's unit and source). Config files (YAML, Helm values, env) count as code. Match the surrounding density: bare file, bare addition. Never write what goes stale: change or merge notes ("added for X", "needs chart Y"), restated names, next-line narration, commented-out code. Those belong in the commit or PR.
-- Integration tests > unit tests. A test that needs a running system is an integration test: never hide it in the unit suite behind a skip guard, env gate, or `@Disabled`, where it passes in CI while testing nothing.
+- Integration tests > unit tests. A test that needs a running system is an integration test: never hide it in the unit suite behind a skip guard, env gate, or `@Disabled`, where it passes in CI while testing nothing. A bug fix ships its repro as a test that fails before the fix. A test with no assertion is a failing test.
 - Prefer CLI debugging over print statements.
 - Prefer active polling loops over passive waits. Bounded retries. Work longer than a few minutes (deploys, upgrades, test suites) states its expected duration up front, runs detached, and reports at milestones without being polled.
 - Resources that own threads, pools, or connections are never static/global. The runtime that hosts them owns their lifecycle (DI singleton, post-construct/pre-destroy, managed executors). Statics outlive redeploys/hot-reloads and leak; inert constants (compiled patterns, config) are fine.
