@@ -19,12 +19,14 @@
 - Remove more code than you add. Fight complexity actively.
 - Small, incremental changes. No transitional implementations: all in or not.
 - Summarise the problem before starting any fix.
+- Ground every claim. Code: cite `file:line`. Running system: cite the command and its output. "Not possible" names the version tested ("not in 0.45.1"). Use a tool's reported actuals, never a computed estimate. Run an A/B control (one variable changed) before asserting a cause. Anything unproven is labelled a hypothesis, with the test that would settle it.
+- Report first. "Report back", "don't act", "let me know first", "give me feedback": produce the analysis and stop. No edits until told.
 - On naming/api issues, broad-search the codebase before fixing. The issue is usually elsewhere too.
 - Log strategically at decision points only. No noise.
-- Comment sparingly. Code says what, a comment says why, and only where the why isn't obvious (a workaround, a non-obvious invariant, a tricky edge case). No line-by-line narration: it bloats the codebase and slows the human reviewer.
-- Integration tests > unit tests.
+- Comment sparingly. Code says what, a comment says why, and only where the why isn't obvious (a workaround, a non-obvious invariant, a tricky edge case, a magic value's unit and source). Config files (YAML, Helm values, env) count as code. Match the surrounding density: bare file, bare addition. Never write what goes stale: change or merge notes ("added for X", "needs chart Y"), restated names, next-line narration, commented-out code. Those belong in the commit or PR.
+- Integration tests > unit tests. A test that needs a running system is an integration test: never hide it in the unit suite behind a skip guard, env gate, or `@Disabled`, where it passes in CI while testing nothing.
 - Prefer CLI debugging over print statements.
-- Prefer active polling loops over passive waits. Bounded retries.
+- Prefer active polling loops over passive waits. Bounded retries. Work longer than a few minutes (deploys, upgrades, test suites) states its expected duration up front, runs detached, and reports at milestones without being polled.
 - Resources that own threads, pools, or connections are never static/global. The runtime that hosts them owns their lifecycle (DI singleton, post-construct/pre-destroy, managed executors). Statics outlive redeploys/hot-reloads and leak; inert constants (compiled patterns, config) are fine.
 
 # Memory
