@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook: name the cmux workspace after the session's agent name
 # (the name peers use with SendMessage, e.g. "hopsable-87"), read from Claude
-# Code's session registry ~/.claude/sessions/<pid>.json.
+# Code's session registry under the active configuration directory.
 # Title rules, so hand-added suffixes like "(lead)" survive:
 #   - title already holds the name (dash or space form): leave it.
 #   - title starts with an older name of the same project ("hopsable 91 ..."):
@@ -27,7 +27,7 @@ is_hex2() { case "$1" in [0-9a-f][0-9a-f]) return 0 ;; esac; return 1; }
 
 name_for() {
   local f
-  for f in "$HOME"/.claude/sessions/*.json; do
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
     [ -f "$f" ] || continue
     jq -r --arg s "$sid" 'select((.sessionId // "" | ascii_upcase) == $s) | .name // empty' "$f" 2>/dev/null
   done | head -n 1

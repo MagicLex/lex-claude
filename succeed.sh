@@ -97,7 +97,7 @@ render_turn() {
 }
 
 # Project transcript dir for a cwd (Claude Code slug: every non-alphanumeric -> "-").
-projects_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g')"; }
+projects_dir() { printf '%s/projects/%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "$(printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g')"; }
 
 # First prompt of a resumed CONTINUE-mode successor. A bare --resume opens at an
 # empty prompt and waits for the user; this turn starts the work. Plain text, no
@@ -134,6 +134,11 @@ open_successor() {
     # The terminal app may itself have been launched from a Claude session and
     # leak the child-session marker into every shell it opens.
     printf 'unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION\n'
+    if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+      printf 'export CLAUDE_CONFIG_DIR=%q\n' "$CLAUDE_CONFIG_DIR"
+    else
+      printf 'unset CLAUDE_CONFIG_DIR\n'
+    fi
     # lc claude passes --resume through with the pinned model + permission flags,
     # so predecessor and successor run in the same mode (cross-session messages
     # between different permission modes are held for approval). Raw claude if
@@ -333,7 +338,9 @@ the user outranks both). When it tells you it is standing down, carry on alone."
       fi
       echo "SUCCESSOR_OK $uuid"
       kick=""; [ -n "$briefing_file" ] && kick="$KICKOFF"
-      echo "successor verified + grounded — resume with:  claude --resume $uuid${kick:+ \"$kick\"}"
+      printf 'successor verified + grounded. Resume with: '
+      [ -z "${CLAUDE_CONFIG_DIR:-}" ] || printf 'CLAUDE_CONFIG_DIR=%q ' "$CLAUDE_CONFIG_DIR"
+      printf 'claude --resume %s%s\n' "$uuid" "${kick:+ \"$kick\"}"
       [ -f "$WATCH_DIR/$uuid.left" ] && echo "master watch armed: its first $WATCH turns are judged against the briefing (log: $WATCH_DIR/$uuid.log)."
       [ -n "$from_peer" ] && echo "tutelle: peek with Monitor on:  succeed.sh peek $uuid   (read each finished turn with:  succeed.sh turn $uuid)"
       if [ "$do_open" = "1" ]; then

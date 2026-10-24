@@ -72,6 +72,44 @@ lc tokens --session <id> --json
 
 ## CLI
 
+### Second Claude account
+
+Create a separate configuration directory and share the reusable settings:
+
+```bash
+mkdir -m 700 "$HOME/.claude-alt"
+for name in CLAUDE.md settings.json skills rules agents commands hooks statusline-command.sh; do
+  [ ! -e "$HOME/.claude/$name" ] || ln -s "$HOME/.claude/$name" "$HOME/.claude-alt/$name"
+done
+```
+
+Add this function to `~/.zshrc` or `~/.bashrc`:
+
+```bash
+claude-alt() { CLAUDE_CONFIG_DIR="$HOME/.claude-alt" command lex-claude claude "$@"; }
+```
+
+Open a new terminal, run `claude-alt`, and sign in with the second account.
+`claude` and `claude-alt` can run concurrently. Credentials and session history
+stay separate. Settings, identity, skills, and hooks are shared. Settings edits
+in either account apply to both. Plugins and user MCP connections need separate
+setup. Do not copy `.claude.json` or credential files between accounts.
+
+When one account hits its usage limit, `lc move --to alt` (or `--to main`)
+moves every live session of the other account, or the ids given, into the
+target account. Each transcript is symlinked into the target's `projects/`, so
+both accounts append to one file. The old process is stopped and
+`--resume <id>` is typed into the same cmux surface with a kickoff prompt.
+Folder trust is accepted only where the source account already trusts the
+folder. Background agents, shells and monitors do not survive the move.
+Sessions outside cmux are skipped with a printed resume command.
+`--dry-run` lists what would move.
+
+Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
+installer and identity commands manage the shared configuration in `~/.claude`.
+
+### Commands
+
 ```
 lc install [--yes]                                 # bootstrap (idempotent). Prompts before overwriting existing files.
 lc install --hops-only                             # install only the hopsdev binary + PATH (no identity/rules/skills/hook)
@@ -87,6 +125,7 @@ lc skip on|off|status                              # toggle aliases: Claude skip
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
+lc move --to alt|main [--dry-run] [ID...]          # resume live sessions on the other account
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
