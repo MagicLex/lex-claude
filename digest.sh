@@ -6,6 +6,7 @@
 # context by Claude Code.
 #   Cadence: LEX_CLAUDE_DIGEST_EVERY (default 5, 0 = off).
 #   Text:    DIGEST.md next to this script (hand-condensed from RULES.md).
+#   Team:    a cwd with docs/TEAM.md also gets a re-read line.
 #   State:   ~/.claude/lex-claude/.digest/<session_id> (prompt counter,
 #            pruned after 7 days).
 # Needs jq (session_id from hook stdin); silent no-op without.
@@ -22,7 +23,9 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIGEST="$SELF_DIR/DIGEST.md"
 [ -f "$DIGEST" ] || exit 0
 
-session=$(jq -r '.session_id // empty' 2>/dev/null)
+input=$(cat)
+session=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)
+cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)
 session=${session//[^A-Za-z0-9._-]/}
 [ -n "$session" ] || exit 0
 
@@ -40,3 +43,5 @@ printf '%s\n' "$count" > "$state" 2>/dev/null || true
 
 printf '===== lex-claude rules digest (periodic recall; full rules were loaded at session start) =====\n'
 sed '/<!--/,/-->/d' "$DIGEST"   # strip the maintenance comment, no need to re-pay it every injection
+# A project's team working rules (docs/TEAM.md) change during a session and are lost across handoffs.
+[ -n "$cwd" ] && [ -f "$cwd/docs/TEAM.md" ] && printf '\nTeam rules: re-read %s/docs/TEAM.md now and follow it; brief every subagent and successor to read it first.\n' "$cwd"
