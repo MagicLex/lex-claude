@@ -61,6 +61,18 @@ class CodexIntegration(unittest.TestCase):
         self.assertEqual(result["model"], context["payload"]["model"])
         self.assertEqual(result["handoff_threshold"], min(600000, count["payload"]["info"]["model_context_window"] * 75 // 100))
 
+    def test_installed_cli_symlink_resolves_helper(self):
+        install = self.home / ".claude/lex-claude"
+        install.mkdir(parents=True)
+        (install / "codex.py").symlink_to(ROOT / "codex.py")
+        link = self.home / ".local/bin/lc"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(ROOT / "bin/lex-claude")
+        result = subprocess.run(["bash", str(link), "tokens", "--json"],
+                                capture_output=True, text=True, env=self.env, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["context_tokens"], expected)
+
     def test_rate_limit_and_partial_records_do_not_erase_usage(self):
         with self.path.open("a") as stream:
             stream.write('\n' * 200 + '{"type":"event_msg","payload":{"type":"token_count","info":null}}\n{"type":')

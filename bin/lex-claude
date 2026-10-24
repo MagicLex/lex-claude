@@ -1517,7 +1517,12 @@ case "${1:-}" in
   init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   usage)        shift; cmd_usage "$@" ;;
-  tokens)       shift; exec python3 "$SELF_DIR/codex.py" tokens "$@" ;;
+  tokens)
+    shift
+    codex_helper="$SELF_DIR/codex.py"
+    [ -f "$codex_helper" ] || codex_helper="$INSTALL_DIR/codex.py"
+    exec python3 "$codex_helper" tokens "$@"
+    ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
   *) usage; exit 1 ;;

@@ -303,4 +303,4 @@ Replay a local Codex rollout through the CLI and hooks using an isolated home:
 python3 tests/integration_codex.py --transcript /path/to/rollout.jsonl
 ```
 
-The suite checks measured usage, compaction, partial writes, threshold boundaries, trigger latches, kill switches, session isolation, and config preservation. It does not call a model. Live succession requires Codex authentication and can be checked with `succeed.sh --runtime codex run --briefing <file>` using a read-only task.
+The suite checks measured usage, the installed CLI symlink, compaction, partial writes, threshold boundaries, trigger latches, kill switches, session isolation, and config preservation. It does not call a model. Live succession requires Codex authentication and can be checked with `succeed.sh --runtime codex run --briefing <file>` using a read-only task.
