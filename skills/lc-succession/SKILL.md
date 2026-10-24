@@ -1,11 +1,46 @@
 ---
 name: lc-succession
-description: Hand this session's work to a fresh, verified successor when the context nears its limit. The Stop hook triggers this automatically past the token threshold (default 600k); it is also invokable by hand ("hand off", "succeed this session", "spawn a successor"). Composes a live briefing, spawns a fresh Claude Code session, has the master verify it loaded identity + rules AND understood the project, rerolls a fresh one on any failure, and stands down once a successor passes.
+description: Hand work to a fresh, verified Claude Code or Codex session near the context limit, or when asked to hand off or spawn a successor. Composes a live briefing, verifies the successor's identity and opening move, and prints a resumable session. Editing this skill does not request a handoff.
 ---
 
 The context is near full (or you were asked to hand off). Spawn a fresh successor
 and hand off live. The mechanics (spawn, interrogate, reroll, verify) are in
 `succeed.sh`; your only job is the briefing and the judgment around it.
+
+Choose the runtime first. In Codex, use the Codex section below. In Claude Code,
+use the numbered steps. Never launch Claude as a replacement for a Codex session.
+
+## Codex
+
+1. Check measured usage with `lc tokens --json`. It reads the session identified
+   by `CODEX_THREAD_ID`; pass `--session <id>` if needed. Unknown usage stays
+   unknown. Lifetime usage and cached input must not be added to context usage.
+2. Persist only durable, repo-specific memory using step 1 below, if anything
+   qualifies. For work in flight, write a temporary briefing from live context:
+   task, current state, constraints, decisions, next step, and pending work.
+3. Run `bash ~/.claude/lex-claude/succeed.sh --runtime codex run --open`, adding
+   `--briefing <file>` when work remains. Run detached and report progress while
+   it verifies. Each model call has a timeout; attempts are bounded. The helper
+   uses Codex for both the successor and judge. Verification uses read-only
+   sessions; the printed resume command restores the predecessor's model,
+   reasoning effort, sandbox mode, and approval policy when available.
+4. On `SUCCESSOR_OK`, relay the printed resume command. `--open` opens a terminal
+   on macOS when supported; it does not create a tab in the Codex desktop app.
+   Only claim a window opened if the helper reports that. Stand down after
+   relaying the result. Do not call Claude's `ListAgents`, `Monitor`, or
+   `SendMessage`; those are not Codex cross-session tools. The successor's Stop
+   hook judges its first `LEX_CLAUDE_WATCH_TURNS` turns against the briefing and
+   asks for one correction when off track. It never blocks twice in a row.
+5. On failure, report the actual error and retain this session. Native compaction
+   remains available. Do not loop beyond the helper's retry limit.
+
+Automatic triggering requires the installed hooks to be enabled and trusted in
+Codex's `/hooks`. PostToolUse gives one handoff notice; Stop gives one continuation.
+The threshold is the smaller of `LEX_CLAUDE_HANDOFF_TOKENS` (600000 by default)
+and `LEX_CODEX_HANDOFF_PERCENT` (75 by default) of the reported context window.
+The helper never guesses a session by cwd or chooses the newest session.
+
+## Claude Code
 
 Steps, in order:
 
@@ -15,7 +50,7 @@ Steps, in order:
    structural facts, real open threads, or repo preferences that will still hold
    months from now on another machine. NEVER store environment/machine state
    (paths, "currently running X", live branch, cluster/server state, transient
-   config) — it goes stale silently. When in doubt, store nothing.
+   config). It goes stale silently. When in doubt, store nothing.
    - `slug` = cwd with every `/`, `.` and space replaced by `-`.
    - `python3 ~/.claude/lex-claude/memory.py list <slug>` to see what is stored.
    - Pipe the delta to `python3 ~/.claude/lex-claude/memory.py apply <slug>`:
@@ -34,7 +69,7 @@ Steps, in order:
      (what IS, not what was tried); decisions made this session not yet obvious
      from git; any trap (server-side state, a pending choice, a gotcha). Keep it
      to what a fresh agent needs to continue without re-deriving. Do not restate
-     rules/identity — the successor loads those and the master verifies them.
+     rules/identity. The successor loads those and the master verifies them.
 
 3. **Run the succession.**
    - Clean start: `bash ~/.claude/lex-claude/succeed.sh run --open`

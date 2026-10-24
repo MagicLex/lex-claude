@@ -38,6 +38,12 @@ claude --plugin-dir /path/to/lex-claude
 
 Install/update/identity-switch symlinks the active identity to Codex's global instructions file, `~/.codex/AGENTS.md`, and each bundled skill to `~/.codex/skills/`. Codex therefore picks up the same rules and `lc-*` skills without the wrapper. A hand-written `~/.codex/AGENTS.md` is backed up, not clobbered; an existing conflicting skill is left untouched and reported. `lc doctor` checks both links. This covers Codex globally; Cursor/Amp and friends read `AGENTS.md` at project root, which is per-repo and out of scope for the global installer.
 
+Codex hooks and succession require Python 3.11+ and a Codex version with native hooks (tested with `codex-cli 0.164.0`). Install/update merges SessionStart, PostToolUse, and Stop handlers into `$CODEX_HOME/hooks.json` and adds a native context meter when no custom `tui.status_line` exists. Existing handlers and custom status lines are preserved. `CODEX_HOME` takes precedence over `CODEX_DIR`, then defaults to `~/.codex`.
+
+After installation, review and trust the new handlers in Codex's `/hooks`, then start a fresh session. Codex skips untrusted hooks. Hook trust is managed by Codex, not by the installer. See [Codex hooks](https://learn.chatgpt.com/docs/hooks).
+
+`lc tokens --json` reads the exact session selected by `CODEX_THREAD_ID`; outside a session, use `lc tokens --session <id>`. Context usage comes from the latest `token_count.info.last_token_usage.total_tokens`. Cached input is already included. Lifetime usage is reported separately. Missing usage is reported as unknown, with exit status 1. The reader does not infer usage from file size, choose a session by cwd, or reuse a count from before compaction.
+
 For richer, project-aware context (docs bundle, `lc` reference), `lc codex` still acts as a wrapper: it renders the same context bundle as `hook.sh` and passes it as Codex's initial prompt.
 
 Modes:
@@ -61,6 +67,7 @@ Examples:
 lc codex --lite
 lc codex --full "review this repo and tell me the main risks"
 lc codex --print --lite
+lc tokens --session <id> --json
 ```
 
 ## CLI
@@ -79,6 +86,7 @@ lc lang [en|fr|off]                                # set / clear Claude reply la
 lc skip on|off|status                              # toggle aliases: Claude skips permissions, Codex bypasses approvals and sandboxing
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
+lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
@@ -98,7 +106,7 @@ hopsdev init [dir]               # clone logicalclocks/workspaces into [dir] (de
 
 Run inside the venv where `hops` lives (uv targets the active env). Skill relink only touches symlinks pointing into the hopsdev clone base (`$TMPDIR/hopsdev`, override with `HOPSDEV_HOME`); `lc` skills and `my-skills` are left alone. Default repo is `MagicLex/hopsworks-api` (override with `HOPSDEV_REPO`).
 
-**Auto-update**: `lc` checks `origin/main` 1× / 24h, but only on unknown commands. The known local subcommands (`install` `update` `identity` `rules` `lang` `skip` `version` `github-login` `awake` `codex` `init` `doctor` `usage` `help`) skip the network check. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
+**Auto-update**: `lc` checks `origin/main` 1× / 24h, but only on unknown commands. The known local subcommands (`install` `update` `identity` `rules` `lang` `skip` `version` `github-login` `awake` `codex` `init` `doctor` `usage` `tokens` `help`) skip the network check. If newer → pull + sync + redeploy + re-exec. Network failure → silent.
 
 ### agent-browser-bg
 
@@ -128,6 +136,7 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the token-triggered succession (the `Stop` hook fires nothing near the limit). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_COLDSTART_DISABLE=1`: turns off the `lc claude` pre-flight; the launcher hands over the seat without verifying identity/rules load first.
 - `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000): context-token threshold at which succession fires. `LEX_CLAUDE_SUCCESSION_MAX` (default 3): reroll cap. `LEX_CLAUDE_WATCH_TURNS` (default 3): how many of the successor's first turns the master judges after the handover (0 = no watch). `LEX_CLAUDE_MASTER_MODEL` (default haiku): the drift-judge model.
+- `LEX_CODEX_HANDOFF_PERCENT` (default 75): Codex handoff threshold as a percentage of its reported context window, capped by `LEX_CLAUDE_HANDOFF_TOKENS`. `LEX_CODEX_MASTER_MODEL` selects the Codex judge model; unset uses Codex config. `LEX_CODEX_SUCCESSION_TIMEOUT` (default 180 seconds) bounds each Codex verification call. The Claude model pin is not used for Codex.
 - `LEX_CLAUDE_MEMORY_DISABLE=1`: turns off persistent project memory (`memory.py` recall at SessionStart; write is piloted via `/lc-close` and `/lc-succession`). `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
@@ -206,7 +215,9 @@ Identity and rules loading is verified live by a judge. Work near the context li
 
 `cmux-name.sh` at `SessionStart` names the cmux workspace after the session's agent name (the `ListAgents` / `SendMessage` name, e.g. `hopsable-87`, from `~/.claude/sessions/<pid>.json`). A title that already holds the name is left alone. A title that starts with an older name of the same project gets that prefix swapped and keeps the rest, so `hopsable 91 (lead)` becomes `hopsable-6d (lead)`. A default title (`Claude Code`, a path, the dir name, `successor <id>`) becomes the name. Any other title gets the name prefixed. No-op outside cmux.
 
-The flow lives at the harness level, so every identity gets it. Codex has no hooks, so no succession there.
+Codex uses `succeed.sh --runtime codex run [--open] [--briefing <file>]`. `codex.py` starts a persisted `codex exec` session, verifies identity and the opening move through a Codex judge, and prints an exact `codex resume` command. Verification is read-only. Resume carries the predecessor's model, reasoning effort, sandbox mode, and approval policy when available. The first briefed turns are checked by the Codex Stop hook; one off-track turn produces one correction. Claude peer messaging and predecessor tutelle remain Claude-specific.
+
+Codex PostToolUse injects one notice when the measured context crosses the threshold; Stop requests one continuation if needed. A successful handoff suppresses further triggers for the predecessor. The percentage cap leaves room before native compaction on smaller context windows. `--open` uses the same macOS terminal launcher as Claude; it does not create a Codex desktop tab. If no terminal can be opened, use the printed resume command.
 
 Kill switch: `LEX_CLAUDE_HANDOFF_DISABLE=1` disables the trigger, the watch and the succession. `git revert` + `lc update` removes the wiring.
 
@@ -235,7 +246,7 @@ All custom skills are prefixed `lc-` to avoid drowning in native skills or other
 - `lc-exploration`: explore an unfamiliar topic, codebase, or domain as a senior practitioner. Outputs five fixed sections (load-bearing concepts, common misconceptions, stable vs hype, where to dig, first concrete move).
 - `lc-docs-init`: scaffold the standard `docs/` layout (PHILOSOPHY, CONTEXT, PRINCIPLES, INVARIANTS, OPS, TODO) with empty headers. Skips existing files. Use to bootstrap a project.
 - `lc-docs-cleanup`: audit the project's docs for staleness, archives, dead refs, and duplicates. Reports a punch list, never edits.
-- `lc-succession`: hand this session's work to a fresh, verified successor near the context limit. Persists narrow memory, composes a live briefing, then drives `succeed.sh run` to spawn a successor, have the master verify identity + project understanding, reroll on failure, and stand down once one passes. Triggered automatically by the `Stop` hook past the token threshold; also invokable by hand.
+- `lc-succession`: hand work to a fresh, verified Claude Code or Codex session. Persists narrow memory, composes a live briefing, verifies identity and the opening move, then prints a resume command. Triggered by native hooks near the context limit or invoked by hand.
 - `lc-close`: close a work slice by hand (no successor spawned). Commit/push check, docs-in-step check, and a narrow, repo-specific project-memory update. Use on "on ferme", "wrap up", "c'est bon pour aujourd'hui".
 - `lc-voice`: write as Lex, in his voice. One DNA (rhythm, concrete over adjectives, self-deprecation, spaced-hyphen asides), four registers with a contextual sarcasm dial (personal blog: full; professional blog: wit, no snark; outreach: one light touch max; forms: zero). Includes the anti-LLM pass from his stylometric classifier. Ground truth is the voice corpus on his machine, not vendored here.
 
@@ -251,6 +262,7 @@ lex-claude/
 ├── etat.sh                      ← SessionStart état: active identity + live git + memory recall
 ├── master.sh                    ← drift authority: judges identity/rules/project load
 ├── succeed.sh                   ← Stop-hook token trigger + successor watch + succession reroll loop
+├── codex.py                     ← Codex hooks, context usage, verified succession, native meter setup
 ├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
 ├── cmux-name.sh                 ← SessionStart: cmux workspace title = agent name
@@ -282,3 +294,13 @@ Manual: create `identities/<name>.md` with a prelude + the `<!-- LC_RULES_BEGIN 
 ## Editing the shared rules
 
 Edit `RULES.md`, commit, push. On your machines: `lc update` (or wait for auto-update within 24h). Every identity is resynced automatically. If the edit changes a load-bearing rule, condense it into `DIGEST.md` in the same commit.
+
+## Codex integration checks
+
+Replay a local Codex rollout through the CLI and hooks using an isolated home:
+
+```bash
+python3 tests/integration_codex.py --transcript /path/to/rollout.jsonl
+```
+
+The suite checks measured usage, compaction, partial writes, threshold boundaries, trigger latches, kill switches, session isolation, and config preservation. It does not call a model. Live succession requires Codex authentication and can be checked with `succeed.sh --runtime codex run --briefing <file>` using a read-only task.

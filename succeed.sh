@@ -45,12 +45,22 @@
 #   LEX_CLAUDE_WATCH_TURNS      successor turns the master + predecessor watch (default 3)
 # Kill switches: LEX_CLAUDE_DISABLE=1, LEX_CLAUDE_HANDOFF_DISABLE=1.
 # Needs jq. Reuses master.sh (next to this script) as the drift authority.
+# Codex: succeed.sh --runtime codex run [--open] [--briefing <file>].
+# Codex's native hooks and token counts are handled by codex.py.
+
+runtime="${LEX_CLAUDE_RUNTIME:-}"
+if [ "${1:-}" = "--runtime" ]; then runtime="${2:-}"; shift 2; fi
+[ -n "$runtime" ] || { if [ "${1:-}" = run ] && [ -n "${CODEX_THREAD_ID:-}" ]; then runtime=codex; else runtime=claude; fi; }
+case "$runtime" in claude|codex) ;; *) echo "succeed.sh: runtime must be claude or codex" >&2; exit 2 ;; esac
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ "$runtime" = codex ] && [ "${1:-}" != open-codex ]; then
+  exec python3 "$SELF_DIR/codex.py" "$@"
+fi
 
 [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] && exit 0
 [ "${LEX_CLAUDE_HANDOFF_DISABLE:-}" = "1" ] && exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 MASTER="$SELF_DIR/master.sh"
 STATE_ROOT="$HOME/.claude/lex-claude/state"
 LATCH_DIR="$STATE_ROOT/.succession"
@@ -128,7 +138,13 @@ open_successor() {
     # so predecessor and successor run in the same mode (cross-session messages
     # between different permission modes are held for approval). Raw claude if
     # lc is not on PATH.
-    printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s%s; else claude --resume %s%s; fi'\n" "$qdir" "$id" "$kick" "$id" "$kick"
+    if [ "$runtime" = codex ]; then
+      local resume_cmd
+      printf -v resume_cmd '%q ' python3 "$SELF_DIR/codex.py" resume "$id"
+      printf 'cd %q && exec /bin/zsh -lic %q\n' "$dir" "$resume_cmd"
+    else
+      printf "cd '%s' && exec /bin/zsh -lic 'if command -v lc >/dev/null 2>&1; then lc claude --resume %s%s; else claude --resume %s%s; fi'\n" "$qdir" "$id" "$kick" "$id" "$kick"
+    fi
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
     cmux)
@@ -157,6 +173,13 @@ OSA
 }
 
 case "${1:-}" in
+  open-codex)
+    runtime=codex
+    id="${2:-}"
+    [[ "$id" =~ ^[a-fA-F0-9-]+$ ]] || exit 2
+    open_successor "$id" "$PWD" "" && echo "opened Codex successor in a new terminal window." \
+      || echo "Could not auto-open; use the printed Codex resume command."
+    ;;
   check)
     input=$(cat)
     session=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)

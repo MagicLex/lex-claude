@@ -13,7 +13,11 @@ LEX_CLAUDE_CONTEXT_MODE="${LEX_CLAUDE_CONTEXT_MODE:-full}"
 # (the `claudeMd` system-reminder). Re-dumping it here only inflated the hook
 # output past the truncation limit, which cut off the acknowledgement
 # instruction at the bottom. Skip it; just name it so the ack can reference it.
-printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
+if [ "${LEX_CLAUDE_RUNTIME:-claude}" = codex ]; then
+  printf '\n===== global identity =====\nGlobal Codex AGENTS.md is already loaded in context.\n'
+else
+  printf '\n===== global identity =====\nGlobal ~/.claude/CLAUDE.md is already loaded in context (no need to re-read).\n'
+fi
 
 # Session état: active identity (verifiable fact) + live git. Injected before the
 # docs so a truncated bundle still carries the state. Succession happens live

@@ -10,7 +10,7 @@ BIN_DIR="$HOME/.local/bin"
 BIN_LINK="$BIN_DIR/lex-claude"
 BIN_ALIAS="$BIN_DIR/lc"
 BIN_HOPS="$BIN_DIR/hopsdev"
-CODEX_DIR="${CODEX_DIR:-$HOME/.codex}"
+CODEX_DIR="${CODEX_HOME:-${CODEX_DIR:-$HOME/.codex}}"
 AGENTS_LINK="$CODEX_DIR/AGENTS.md"
 CODEX_SKILLS_DIR="$CODEX_DIR/skills"
 LANG_FILE="$INSTALL_DIR/.lang"
@@ -88,6 +88,7 @@ Usage:
   lex-claude init zsh|bash                           Output shell completion. Add to rc: eval "\$(lc init zsh)".
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
+  lex-claude tokens [--session ID] [--json]            Show measured Codex context tokens and the handoff threshold.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -315,6 +316,8 @@ deploy() {
 
   wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
   wire_statusline || echo "note: statusline wiring skipped. run 'lc doctor' to investigate."
+  CODEX_DIR="$CODEX_DIR" python3 "$INSTALL_DIR/codex.py" wire \
+    || echo "warn: Codex hook/statusline wiring failed. Requires Python 3.11+."
 }
 
 deploy_hops_only() {
@@ -1087,7 +1090,7 @@ EOF
   [ -f "$hook_script" ] || die "hook.sh not found"
 
   local prompt=""
-  prompt="$(LEX_CLAUDE_CONTEXT_MODE="$context_mode" CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
+  prompt="$(LEX_CLAUDE_RUNTIME=codex LEX_CLAUDE_CONTEXT_MODE="$context_mode" CLAUDE_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}" bash "$hook_script")" || die "failed to build Codex prompt"
 
   if [ $# -gt 0 ]; then
     prompt="${prompt}
@@ -1126,6 +1129,7 @@ _lc() {
     'claude:launch Claude Code with a verified cold-start (master pre-flight)'
     'init:shell completion + context dump'
     'usage:report used / never-used commands + skills'
+    'tokens:show measured Codex context tokens and handoff threshold'
     'doctor:sanity-check the install'
     'version:print install version'
   )
@@ -1168,7 +1172,7 @@ _lc() {
   local cur prev cmds
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  cmds="install update identity rules model lang skip github-login awake codex claude init usage doctor version"
+  cmds="install update identity rules model lang skip github-login awake codex claude init usage tokens doctor version"
   case "$prev" in
     lc|lex-claude) COMPREPLY=( $(compgen -W "$cmds" -- "$cur") ) ;;
     install)       COMPREPLY=( $(compgen -W "--yes --hops-only" -- "$cur") ) ;;
@@ -1212,6 +1216,7 @@ Available subcommands (run with `lc <cmd>`):
 - `awake status`                              inspect (shows pid, started, command)
 - `codex [--lite|--full] [prompt]`            launch Codex with lex-claude context preloaded
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
+- `tokens [--session ID] [--json]`           measured Codex context usage and handoff threshold
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
@@ -1260,6 +1265,10 @@ Notes:
   over SendMessage. Kill:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
+- Codex succession uses `succeed.sh --runtime codex run`. Its native hooks need
+  trust in `/hooks`. `lc tokens` reads the active `CODEX_THREAD_ID`, or an explicit
+  `--session ID`. Handoff defaults to the smaller of 600000 tokens and 75% of
+  the reported context window (`LEX_CODEX_HANDOFF_PERCENT`).
 EOF
       ;;
     help|-h|--help|"")
@@ -1339,6 +1348,12 @@ cmd_doctor() {
   _hook_wired "lex-claude/style" && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
   _hook_wired "lex-claude/succeed" && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
   { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
+  if [ -f "$INSTALL_DIR/codex.py" ] && jq -e '[.hooks.Stop[]?.hooks[]? | select(.command | contains("/codex.py"))] | length > 0' "$CODEX_DIR/hooks.json" >/dev/null 2>&1; then
+    echo "ok    Codex succession hook configured; check trust and enablement with /hooks"
+  else
+    echo "warn  Codex succession hook missing. run 'lc update'"
+  fi
+  command -v codex >/dev/null 2>&1 && codex --version || echo "warn  codex missing"
   command -v jq >/dev/null 2>&1 && echo "ok    jq present" || echo "warn  jq missing (cold-start check + succession judge run unverified). install jq"
   case "$(command claude auth status 2>/dev/null | jq -r '.loggedIn | tostring' 2>/dev/null)" in
     true)  echo "ok    claude logged in" ;;
@@ -1468,7 +1483,7 @@ cmd_claude() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1502,6 +1517,7 @@ case "${1:-}" in
   init)         shift; cmd_init "$@" ;;
   doctor)       shift; cmd_doctor "$@" ;;
   usage)        shift; cmd_usage "$@" ;;
+  tokens)       shift; exec python3 "$SELF_DIR/codex.py" tokens "$@" ;;
   version|-v|--version) cmd_version ;;
   -h|-help|--help|help|"") usage ;;
   *) usage; exit 1 ;;

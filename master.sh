@@ -33,25 +33,29 @@ fail() { jq -n --arg r "$1" '{pass:false,reason:$r}'; exit 1; }
 # --- args ---
 [ "${1:-}" = "verify" ] || { echo "usage: master.sh verify --answer <file> --phase identity|project|trajectory [--briefing <file>]" >&2; exit 2; }
 shift
-answer_file=""; phase=""; briefing_file=""
+answer_file=""; phase=""; briefing_file=""; runtime=claude
 while [ $# -gt 0 ]; do
   case "$1" in
     --answer)   answer_file="$2"; shift 2 ;;
     --phase)    phase="$2"; shift 2 ;;
     --briefing) briefing_file="$2"; shift 2 ;;
+    --runtime)  runtime="$2"; shift 2 ;;
     *) echo "master.sh: unknown arg $1" >&2; exit 2 ;;
   esac
 done
 [ -f "$answer_file" ] || { echo "master.sh: --answer file not found" >&2; exit 2; }
 case "$phase" in identity|project|trajectory) ;; *) echo "master.sh: --phase must be identity|project|trajectory" >&2; exit 2 ;; esac
+case "$runtime" in claude|codex) ;; *) echo "master.sh: --runtime must be claude or codex" >&2; exit 2 ;; esac
 
 # --- ground truth: the resolved identity file is the authoritative source the
 # session is supposed to load. Read it directly (follow the symlink), no copy. ---
 expected_identity="?"
 identity_doc="(identity doc unavailable)"
 link="$HOME/.claude/CLAUDE.md"
+[ "$runtime" = codex ] && link="${CODEX_HOME:-${CODEX_DIR:-$HOME/.codex}}/AGENTS.md"
 tgt="$link"
 [ -L "$link" ] && tgt="$(readlink "$link" 2>/dev/null || printf '%s' "$link")"
+[[ "$tgt" = /* ]] || tgt="$(dirname "$link")/$tgt"
 expected_identity="$(basename "$tgt" .md 2>/dev/null)"
 [ -f "$tgt" ] && identity_doc="$(cat "$tgt")"
 subject_answer="$(cat "$answer_file")"
@@ -145,6 +149,21 @@ fi
 # Keep stderr: "judge spawn failed" alone is undebuggable (model alias not
 # available on this account, unsupported flag, auth...).
 errf=$(mktemp 2>/dev/null) || errf="/tmp/lc-master.$$"
+if [ "$runtime" = codex ]; then
+  result_file=$(mktemp) || fail "cannot create judge output file"
+  if ! printf '%s' "$prompt" | python3 "$(dirname "$0")/codex.py" judge --output "$result_file" 2>"$errf"; then
+    err=$(tail -n1 "$errf" | cut -c1-300)
+    rm -f "$errf" "$result_file"
+    fail "Codex judge failed: $err"
+  fi
+  result=$(cat "$result_file")
+  rm -f "$errf" "$result_file"
+  printf '%s' "$result" | jq -e 'type=="object" and (.pass|type)=="boolean" and (.reason|type)=="string"' >/dev/null 2>&1 \
+    || fail "Codex judge returned an invalid verdict"
+  printf '%s\n' "$result"
+  [ "$(printf '%s' "$result" | jq -r '.pass')" = true ]
+  exit $?
+fi
 raw=$(LEX_CLAUDE_DISABLE=1 command claude -p --output-format json \
         --no-session-persistence --model "$MODEL" "$prompt" 2>"$errf") \
   || { err=$(tail -n1 "$errf" 2>/dev/null | cut -c1-200); rm -f "$errf"; fail "judge spawn failed (model $MODEL): ${err:-no stderr}"; }
