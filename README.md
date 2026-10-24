@@ -309,6 +309,8 @@ lex-claude/
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
 ├── statusline-command.sh        ← managed statusline
+├── move.sh                      ← `lc move`: resume live sessions on the other account
+├── control-room/                ← local cmux session viewer (see control-room/README.md)
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
 ├── identities/
