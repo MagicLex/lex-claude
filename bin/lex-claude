@@ -17,6 +17,9 @@ LANG_FILE="$INSTALL_DIR/.lang"
 MODEL_FILE="$INSTALL_DIR/.model"
 SKIP_FILE="$INSTALL_DIR/.skip"
 LID_RULE="/etc/sudoers.d/lex-claude-pmset"
+AGENT_CHROME_LABEL="com.lex-claude.agent-chrome"
+AGENT_CHROME_PORT="${LEX_CLAUDE_AGENT_CHROME_PORT:-9333}"
+AGENT_CHROME_PROFILE="$HOME/.chrome-agent"
 # ${BASH_SOURCE[0]:-$0}: BASH_SOURCE is unset when piped (curl | bash -s) and set -u would abort.
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
@@ -134,6 +137,59 @@ wire_statusline() {
     echo "warn: jq patch failed. statusLine NOT wired."
     rm -f "$out" 2>/dev/null || true
     return 1
+  fi
+}
+
+# Dedicated Chrome for agent-browser, started with --remote-debugging-port.
+# The chrome://inspect toggle (Chrome 144+) asks "Allow remote debugging?" on
+# every new CDP connection; the port flag does not. Since Chrome 136 the flag
+# needs a non-default --user-data-dir, so agents get their own profile.
+wire_agent_chrome() {
+  [ "$(uname)" = "Darwin" ] || return 0
+  local chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  [ -x "$chrome" ] || { echo "agent-chrome: Google Chrome not installed (skipped)"; return 0; }
+  command -v agent-browser >/dev/null 2>&1 || { echo "agent-chrome: agent-browser not installed (skipped)"; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "warn: jq missing. agent-chrome not wired"; return 0; }
+
+  local plist="$HOME/Library/LaunchAgents/$AGENT_CHROME_LABEL.plist"
+  local want; want=$(cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AGENT_CHROME_LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$chrome</string>
+    <string>--user-data-dir=$AGENT_CHROME_PROFILE</string>
+    <string>--remote-debugging-port=$AGENT_CHROME_PORT</string>
+    <string>--no-first-run</string>
+    <string>--no-default-browser-check</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+</dict>
+</plist>
+EOF
+)
+  mkdir -p "$(dirname "$plist")"
+  if [ "$(cat "$plist" 2>/dev/null)" != "$want" ]; then
+    printf '%s\n' "$want" > "$plist"
+    launchctl bootout "gui/$(id -u)/$AGENT_CHROME_LABEL" 2>/dev/null || true
+  fi
+  launchctl print "gui/$(id -u)/$AGENT_CHROME_LABEL" >/dev/null 2>&1 \
+    || launchctl bootstrap "gui/$(id -u)" "$plist" \
+    || { echo "warn: launchctl bootstrap failed for $plist"; return 1; }
+
+  local cfg="$HOME/.agent-browser/config.json" out
+  mkdir -p "$(dirname "$cfg")"
+  [ -f "$cfg" ] || echo '{}' > "$cfg"
+  out=$(mktemp) || return 1
+  if jq --arg p "$AGENT_CHROME_PORT" '.cdp = $p' "$cfg" > "$out" && mv "$out" "$cfg"; then
+    echo "agent-chrome: port $AGENT_CHROME_PORT, profile $AGENT_CHROME_PROFILE, agent-browser cdp set in $cfg"
+  else
+    rm -f "$out"; echo "warn: jq patch of $cfg failed"; return 1
   fi
 }
 
@@ -317,6 +373,7 @@ deploy() {
 
   wire_hook || echo "note: hook wiring skipped. cli works. run 'lc doctor' to investigate."
   wire_statusline || echo "note: statusline wiring skipped. run 'lc doctor' to investigate."
+  wire_agent_chrome || echo "note: agent-chrome wiring failed. run 'lc doctor' to investigate."
   CODEX_DIR="$CODEX_DIR" python3 "$INSTALL_DIR/codex.py" wire \
     || echo "warn: Codex hook/statusline wiring failed. Requires Python 3.11+."
 }
@@ -1365,6 +1422,11 @@ cmd_doctor() {
   [ -f "$INSTALL_DIR/DIGEST.md" ] && echo "ok    DIGEST.md present" || echo "warn  DIGEST.md missing (digest hook is a no-op). run 'lc update'"
   [ -f "$MODEL_FILE" ] && echo "ok    model pinned: $(cat "$MODEL_FILE")" || echo "ok    model: default"
   [ -f "$SKIP_FILE" ] && echo "ok    skip: on" || echo "ok    skip: off"
+  if [ -f "$HOME/Library/LaunchAgents/$AGENT_CHROME_LABEL.plist" ]; then
+    curl -sf "http://127.0.0.1:$AGENT_CHROME_PORT/json/version" >/dev/null \
+      && echo "ok    agent-chrome listening on $AGENT_CHROME_PORT" \
+      || echo "warn  agent-chrome not listening on $AGENT_CHROME_PORT. check: launchctl print gui/$(id -u)/$AGENT_CHROME_LABEL"
+  fi
   if command -v pmset >/dev/null 2>&1; then
     [ -f "$LID_RULE" ] && echo "ok    awake --lid rule ($LID_RULE)" || echo "ok    awake --lid: not set up (first 'lc awake --lid' installs the rule)"
     _sleep_disabled && echo "warn  SleepDisabled is 1: the lid will not sleep this Mac. 'lc awake status' shows if lc holds it"
