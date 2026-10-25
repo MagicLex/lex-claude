@@ -161,14 +161,16 @@ lc doctor                                                     # ok    agent-chro
 launchctl bootout gui/$(id -u)/com.lex-claude.agent-chrome   # stop it (lc update starts it again)
 ```
 
+Tabs in the user's own Chrome (sign-in and OAuth flows) still need `--auto-connect` and one Allow click per connection. agent-browser finds that Chrome through `~/Library/Application Support/Google/Chrome/DevToolsActivePort`; macOS denies the terminal app read access to it until the app has Full Disk Access (System Settings, Privacy & Security). Without it: "No running Chrome instance found".
+
 ### agent-browser-bg
 
-Stock agent-browser (up to v0.38.2) calls `Page.bringToFront` when it creates or switches tabs, so it pulls Chrome over whatever app you are in. Upstream issue [#1247](https://github.com/vercel-labs/agent-browser/issues/1247), fix in PR [#1880](https://github.com/vercel-labs/agent-browser/pull/1880), not merged yet. Until it ships, build v0.38.2 plus that PR as a separate binary and pin brew to the same base:
+Stock agent-browser (up to v0.39.2) calls `Page.bringToFront` when it creates or switches tabs, so it pulls Chrome over whatever app you are in. Upstream issue [#1247](https://github.com/vercel-labs/agent-browser/issues/1247), fix in PR [#1880](https://github.com/vercel-labs/agent-browser/pull/1880), not merged yet. Until it ships, build v0.39.2 plus that PR as a separate binary and pin brew to the same base:
 
 ```
 brew install rust
 git clone https://github.com/vercel-labs/agent-browser.git && cd agent-browser
-git checkout -b bg v0.38.2
+git checkout -b bg v0.39.2
 git fetch origin pull/1880/head:pr-1880 && git cherry-pick pr-1880
 cd cli && cargo build --release
 ln -sf "$PWD/target/release/agent-browser" ~/.local/bin/agent-browser-bg
