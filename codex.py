@@ -139,45 +139,6 @@ def disabled():
     return any(os.environ.get(key) == "1" for key in ("LEX_CLAUDE_DISABLE", "LEX_CLAUDE_HANDOFF_DISABLE"))
 
 
-def render_turn(path):
-    lines = []
-    for record in records(path, reverse=True):
-        item = record.get("payload", {})
-        if record.get("type") != "response_item":
-            continue
-        if item.get("type") == "message" and item.get("role") in ("user", "assistant"):
-            text = "\n".join(part.get("text", "") for part in item.get("content", []))
-            lines.append(item["role"].upper() + ": " + text)
-            if item["role"] == "user":
-                break
-        elif item.get("type") in ("function_call", "custom_tool_call"):
-            lines.append(f"[tool {item.get('name')}] " + str(item.get("arguments", item.get("input", "")))[:240])
-    return "\n".join(reversed(lines))[:9000]
-
-
-def watch(sid, path):
-    saved_path = state_dir() / f"{sid}.json"
-    if not saved_path.exists():
-        return None
-    saved = json.loads(saved_path.read_text())
-    if not saved.get("briefing") or saved.get("watch_left", 0) <= 0:
-        return None
-    saved["watch_left"] -= 1
-    saved_path.write_text(json.dumps(saved, indent=2) + "\n")
-    with tempfile.TemporaryDirectory(prefix="lc-codex-watch-") as tmp:
-        answer = Path(tmp) / "turn.txt"
-        briefing = Path(tmp) / "briefing.txt"
-        answer.write_text(render_turn(path))
-        briefing.write_text(saved["briefing"])
-        verdict = verify(answer, "trajectory", briefing)
-    with saved_path.with_suffix(".log").open("a") as log:
-        log.write(json.dumps(verdict) + "\n")
-    if verdict["pass"] is False:
-        return {"decision": "block", "reason": "Succession watch: " + verdict["reason"] +
-                ". Follow the latest user instruction; otherwise correct course against the briefing."}
-    return None
-
-
 def hook(event):
     if disabled():
         return {}
@@ -200,10 +161,6 @@ def hook(event):
     data = usage(path)
     if data.get("session_id") != sid:
         return {}
-    if name == "Stop":
-        correction = watch(sid, path)
-        if correction:
-            return correction
     tokens = data.get("context_tokens")
     limit = threshold(data)
     if limit is None or not isinstance(tokens, int) or tokens < limit:
@@ -309,9 +266,6 @@ def run(args):
     root = state_dir()
     root.mkdir(parents=True, exist_ok=True)
     attempts = positive_env("LEX_CLAUDE_SUCCESSION_MAX", 3)
-    watched_turns = int(os.environ.get("LEX_CLAUDE_WATCH_TURNS", "3"))
-    if watched_turns < 0:
-        raise ValueError("LEX_CLAUDE_WATCH_TURNS must be nonnegative")
     for attempt in range(1, attempts + 1):
         print(f">> Codex successor attempt {attempt}/{attempts}", file=sys.stderr, flush=True)
         try:
@@ -360,15 +314,13 @@ def run(args):
     if brief is not None:
         command += ["Take over the briefed work now. Check the live state, then carry out your opening move."]
     saved = {"generation": generation + 1 if parent else 1, "parent": parent,
-             "command": command, "briefing": brief, "watch_left": watched_turns if brief else 0}
+             "command": command}
     (root / f"{sid}.json").write_text(json.dumps(saved, indent=2) + "\n")
     if parent:
         import retirement
         retirement.register("codex", parent, sid)
     print(f"SUCCESSOR_OK {sid}")
     print("Resume with: " + shlex.join(command))
-    if brief and watched_turns:
-        print(f"Master watch armed for {watched_turns} turns; requires trusted Codex Stop hook.")
     if args.open:
         subprocess.run(["bash", str(Path(__file__).with_name("succeed.sh")), "open-codex", sid], check=True)
 

@@ -1321,11 +1321,9 @@ Notes:
   Stop hook (succeed.sh check) triggers the lc-succession skill: it spawns a
   fresh successor, the master verifies identity + project understanding, rerolls
   a fresh one on any failure, opens the verified one in a new terminal window
-  with a kickoff prompt (it starts working on its own), and stands down. In continue mode the master then watches the successor's
-  first turns (LEX_CLAUDE_WATCH_TURNS, default 3) against the briefing via its
-  Stop hook and blocks once with the reason if it drifts off track. The
-  predecessor retires after the verified successor acknowledges its resume.
-  Hooks stop the parent process and close its exact cmux tab. Kill switch:
+  with a kickoff prompt (it starts working on its own), and stands down. The
+  predecessor retires as soon as the verified successor acknowledges its
+  resume: hooks stop the parent process and close its exact cmux tab. Kill switch:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 - Codex succession uses `succeed.sh --runtime codex run`. Its native hooks need

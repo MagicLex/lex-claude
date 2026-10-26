@@ -18,7 +18,6 @@ command -v jq >/dev/null 2>&1 || exit 0
 MASTER="$SELF_DIR/master.sh"
 STATE_ROOT="$HOME/.claude/lex-claude/state"
 LATCH_DIR="$STATE_ROOT/.succession"
-WATCH_DIR="$LATCH_DIR/watch"
 LINEAGE_DIR="$STATE_ROOT/lineage"   # <session-id> = "gen<TAB>predecessor-id"; read by the statusline
 
 # Context size = last assistant turn's live footprint (input + both cache reads).
@@ -34,22 +33,6 @@ context_tokens() {
 # it. Each human prompt opens a new record (marker line), awk keeps the last
 # record. Rendered as plain text for the master, bounded so a chatty turn does
 # not blow the judge's prompt.
-render_turn() {
-  jq -Rr 'fromjson? | select(.type=="user" or .type=="assistant")
-    | if .type=="user" then
-        (if (.message.content|type)=="string" and ((.message.content|startswith("<task-notification>"))|not) then "@@TURN@@\nUSER: " + .message.content else empty end)
-      else
-        (.message.content
-          | if type=="string" then . else
-              map(if .type=="text" then .text
-                  elif .type=="tool_use" then "[tool " + .name + "] " + ((.input.command // .input.file_path // .input.description // (.input|tostring)) | tostring | .[0:240])
-                  else empty end) | join("\n")
-            end)
-      end' "$1" 2>/dev/null \
-  | awk '/^@@TURN@@$/ {buf=""; next} {buf = buf $0 "\n"} END {printf "%s", buf}' \
-  | head -c 9000
-}
-
 # Project transcript dir for a cwd (Claude Code slug: every non-alphanumeric -> "-").
 projects_dir() { printf '%s/projects/%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "$(printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g')"; }
 
@@ -68,7 +51,7 @@ KICKOFF="Resumed after the handover: take over the briefed work now. Start with 
 # "opened" that did not is worse than a printed resume line.
 open_successor() {
   local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
-  launcher="$WATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
+  launcher="$LATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
   case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not macOS, no auto-open" >&2; return 1 ;; esac
   case "${TERM_PROGRAM:-}" in
     iTerm.app) app=iTerm ;;
@@ -80,7 +63,7 @@ open_successor() {
        else echo "   open: no cmux/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
   esac
   [ "$app" = cmux ] || command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
-  mkdir -p "$WATCH_DIR" 2>/dev/null || return 1
+  mkdir -p "$LATCH_DIR" 2>/dev/null || return 1
   # Single-quote the dir for the shell ('\'' escapes an embedded quote).
   qdir=$(printf '%s' "$dir" | sed "s/'/'\\\\''/g")
   {
@@ -149,39 +132,7 @@ case "${1:-}" in
     retirement=$(printf '%s' "$input" | python3 "$SELF_DIR/retirement.py" hook claude) || exit 1
     if [ "$retirement" != "{}" ]; then printf '%s\n' "$retirement"; exit 0; fi
 
-    # (1) Watched successor: judge the turn it just finished. Bounded to
-    # LEX_CLAUDE_WATCH_TURNS checks (a block counts), then the watch is dropped.
-    # stop_hook_active = this turn is already a continuation after our block;
-    # never block twice in a row (no loop, the user gets the seat back).
-    if [ -f "$WATCH_DIR/$session.briefing" ] && [ -x "$MASTER" ]; then
-      left=$(cat "$WATCH_DIR/$session.left" 2>/dev/null)
-      case "$left" in *[!0-9]*|"") left=0 ;; esac
-      if [ "$left" -le 0 ]; then
-        rm -f "$WATCH_DIR/$session".* 2>/dev/null
-      else
-        left=$((left-1)); printf '%s\n' "$left" > "$WATCH_DIR/$session.left"
-        turn=$(mktemp 2>/dev/null) || turn="/tmp/lc-watch.$$"
-        render_turn "$transcript" > "$turn"
-        verdict=""; pass=""
-        if [ -s "$turn" ]; then
-          verdict=$("$MASTER" verify --answer "$turn" --phase trajectory --briefing "$WATCH_DIR/$session.briefing" 2>/dev/null)
-          # not `.pass // empty`: jq's // treats false as missing.
-          pass=$(printf '%s' "$verdict" | jq -r 'if .pass==true then "true" elif .pass==false then "false" else empty end' 2>/dev/null)
-          reason=$(printf '%s' "$verdict" | jq -r '.reason // "off track"' 2>/dev/null)
-          printf '%s\t%s\t%s\n' "$(date +%s)" "${pass:-?}" "$reason" >> "$WATCH_DIR/$session.log" 2>/dev/null
-        fi
-        rm -f "$turn"
-        [ "$left" -le 0 ] && rm -f "$WATCH_DIR/$session.briefing" "$WATCH_DIR/$session.left" "$WATCH_DIR/$session.launch" 2>/dev/null
-        active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)
-        if [ "$pass" = "false" ] && [ "$active" != "true" ]; then
-          jq -n --arg r "MASTER (succession watch): this turn is OFF the briefed track. $reason. Re-read the briefing you were handed (it is in your context). If the user has asked you to work, correct course now and say in one line what you are correcting. If nobody has asked you to work yet, do NOT start working: state the correction in one line and stop." \
-            '{decision:"block", reason:$r}'
-          exit 0
-        fi
-      fi
-    fi
-
-    # (2) Token trigger.
+    # Token trigger.
     threshold="${LEX_CLAUDE_HANDOFF_TOKENS:-600000}"
     case "$threshold" in *[!0-9]*|"") exit 0 ;; esac
 
@@ -217,8 +168,6 @@ case "${1:-}" in
 
     MAX="${LEX_CLAUDE_SUCCESSION_MAX:-3}"
     case "$MAX" in *[!0-9]*|"") MAX=3 ;; esac
-    WATCH="${LEX_CLAUDE_WATCH_TURNS:-3}"
-    case "$WATCH" in *[!0-9]*|"") WATCH=3 ;; esac
     tmp=$(mktemp -d 2>/dev/null) || tmp="/tmp/lc-succ.$$"
     mkdir -p "$tmp" 2>/dev/null || true
     pdir=$(projects_dir "$PWD")
@@ -262,14 +211,6 @@ approach, as if starting now. Do NOT modify any files yet."
           rm -f "$pdir/$uuid.jsonl" 2>/dev/null || true
           attempt=$((attempt+1)); continue
         fi
-        # Arm the watch: the successor's Stop hook judges its first WATCH turns
-        # against this briefing and blocks with the master's reason if off track.
-        if [ "$WATCH" -gt 0 ] && mkdir -p "$WATCH_DIR" 2>/dev/null; then
-          find "$WATCH_DIR" -type f -mtime +7 -delete 2>/dev/null || true
-          cp "$briefing_file" "$WATCH_DIR/$uuid.briefing" 2>/dev/null \
-            && printf '%s\n' "$WATCH" > "$WATCH_DIR/$uuid.left" \
-            || rm -f "$WATCH_DIR/$uuid".* 2>/dev/null
-        fi
       fi
 
       # Both gates passed. Leave the session resumable; stand down.
@@ -289,7 +230,6 @@ approach, as if starting now. Do NOT modify any files yet."
       printf 'successor verified + grounded. Resume with: '
       [ -z "${CLAUDE_CONFIG_DIR:-}" ] || printf 'CLAUDE_CONFIG_DIR=%q ' "$CLAUDE_CONFIG_DIR"
       printf 'claude --resume %s%s\n' "$uuid" "${kick:+ \"$kick\"}"
-      [ -f "$WATCH_DIR/$uuid.left" ] && echo "master watch armed: its first $WATCH turns are judged against the briefing (log: $WATCH_DIR/$uuid.log)."
       if [ "$do_open" = "1" ]; then
         open_successor "$uuid" "$PWD" "$kick" && echo "opened a new terminal window on the successor (cd $PWD)." \
           || echo "(could not auto-open a window here. use the resume line above)"

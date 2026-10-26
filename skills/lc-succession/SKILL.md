@@ -28,11 +28,9 @@ use the numbered steps. Never launch Claude as a replacement for a Codex session
    on macOS when supported; it does not create a tab in the Codex desktop app.
    Only claim a window opened if the helper reports that. Stand down after
    relaying the result. Do not call Claude's `ListAgents`, `Monitor`, or
-   `SendMessage`; those are not Codex cross-session tools. The successor's Stop
-   hook judges its first `LEX_CLAUDE_WATCH_TURNS` turns against the briefing and
-   asks for one correction when off track. It never blocks twice in a row.
-   After the successor acknowledges its resume, its hooks stop the verified
-   parent process and close its cmux tab. Do not monitor the successor yourself.
+   `SendMessage`; those are not Codex cross-session tools. As soon as the
+   successor acknowledges its resume, its hooks stop the verified parent
+   process and close its cmux tab. Do not monitor the successor yourself.
 5. On failure, report the actual error and retain this session. Native compaction
    remains available. Do not loop beyond the helper's retry limit.
 
@@ -77,15 +75,15 @@ Steps, in order:
 3. **Run the succession.**
    - Clean start: `bash ~/.claude/lex-claude/succeed.sh run --open`
    - Continue working: `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <file>`
-   The helper verifies identity and the opening move, then arms the successor's
-   Stop hook to judge its first turns against the briefing. Run detached and
+   The helper verifies identity and the opening move. Run detached and
    report progress while verification runs.
 
 4. **Relay the outcome and stop.**
    - On `SUCCESSOR_OK`, relay the printed resume command and the launch result.
-     Do not monitor or message the successor. Its hooks perform the watch.
+     Do not monitor or message the successor.
    - The verified successor acknowledges its resume through a hook. The retirement
-     helper then stops the recorded parent process and closes its exact cmux tab.
+     helper then stops the recorded parent process right away and closes its
+     exact cmux tab. This is the last turn of this session: no review after it.
      A failed launch or an unacknowledged resume leaves the parent open.
    - Retired parents are denied tools if resumed. Their terminal is closed when
      its process and surface can be verified. Never close an unrelated surface.
