@@ -207,8 +207,8 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style hook.
 - `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the token-triggered succession (the `Stop` hook fires nothing near the limit). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_COLDSTART_DISABLE=1`: turns off the `lc claude` pre-flight; the launcher hands over the seat without verifying identity/rules load first.
-- `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000): context-token threshold at which succession fires. `LEX_CLAUDE_SUCCESSION_MAX` (default 3): reroll cap. `LEX_CLAUDE_WATCH_TURNS` (default 3): how many of the successor's first turns the master judges after the handover (0 = no watch). `LEX_CLAUDE_MASTER_MODEL` (default haiku): the drift-judge model.
-- `LEX_CODEX_HANDOFF_PERCENT` (default 75): Codex handoff threshold as a percentage of its reported context window, capped by `LEX_CLAUDE_HANDOFF_TOKENS`. `LEX_CODEX_MASTER_MODEL` selects the Codex judge model; unset uses Codex config. `LEX_CODEX_SUCCESSION_TIMEOUT` (default 180 seconds) bounds each Codex verification call. The Claude model pin is not used for Codex.
+- `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000): Claude context-token threshold at which succession fires. `LEX_CLAUDE_SUCCESSION_MAX` (default 3): reroll cap. `LEX_CLAUDE_WATCH_TURNS` (default 3): how many of the successor's first turns the master judges after the handover (0 = no watch). `LEX_CLAUDE_MASTER_MODEL` (default haiku): the drift-judge model.
+- `LEX_CODEX_HANDOFF_PERCENT` (default 95): Codex handoff threshold as a percentage of its native auto-compaction limit. The Claude token cap does not apply. The limit uses the reported window, model metadata, and `model_auto_compact_token_limit` from the Codex configuration. Unknown context does not trigger a handoff. `LEX_CODEX_MASTER_MODEL` selects the Codex judge model; unset uses Codex config. `LEX_CODEX_SUCCESSION_TIMEOUT` (default 180 seconds) bounds each Codex verification call. The Claude model pin is not used for Codex.
 - `LEX_CLAUDE_MEMORY_DISABLE=1`: turns off persistent project memory (`memory.py` recall at SessionStart; write is piloted via `/lc-close` and `/lc-succession`). `LEX_CLAUDE_DISABLE=1` also stops it.
 
 Heartbeat: hook.sh writes `~/.claude/lex-claude/.last-hook` (epoch seconds) on each successful run. `stat -f %m ~/.claude/lex-claude/.last-hook` (macOS) or `stat -c %Y` (Linux) tells you when the hook last fired.
@@ -281,17 +281,31 @@ Identity and rules loading is verified live by a judge. Work near the context li
 - **Cold start** (`lc claude`). The launcher runs the identity self-report as turn 1 of a fresh session and has the master judge it before handing over the seat. On failure it repairs the identity symlink and rerolls, up to `LEX_CLAUDE_SUCCESSION_MAX` times, then launches anyway with a warning. Skip with `LEX_CLAUDE_COLDSTART_DISABLE=1`.
 - **Succession** (`succeed.sh` + `/lc-succession`). The `Stop` hook reads the context size from the transcript. Past `LEX_CLAUDE_HANDOFF_TOKENS` it blocks once and invokes the skill. The skill writes a briefing from the live context, then `succeed.sh run` spawns a successor, has the master check its identity and then its first move on the work, and rerolls on failure. On pass it prints `claude --resume <id>`, plus a kickoff prompt in continue mode so the successor starts working without a nudge. With `--open` it opens the resume in a new cmux workspace, iTerm window, or Terminal window, through `lc claude`, so both sessions share the same model and permission mode. Successors and `lc claude` seats drop the inherited `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION` markers: a terminal app started from inside Claude leaks them into every shell, and a marked session is not resumable. On pass it also records the lineage (`state/lineage/<id>`: generation and predecessor id), which the statusline shows as `genN ←<id>`. On exhaustion it stops and native compaction takes over.
 - **Watch** (same `Stop` hook). In continue mode the handover stores the briefing and a countdown under `~/.claude/lex-claude/state/.succession/watch/<id>.*`. For the successor's first `LEX_CLAUDE_WATCH_TURNS` turns the master judges each finished turn against the briefing. Off track, the hook blocks once with the reason. It never blocks twice in a row. An explicit user instruction always counts as on track.
-- **Tutelle** (`/lc-succession` step 4). The predecessor keeps its full context and watches too. `succeed.sh run --from <peer>` tells the successor to message the predecessor by its `ListAgents` name once resumed. That message only gives the predecessor its address. The predecessor runs `Monitor` on `succeed.sh peek <id>`, which reads the successor's transcript and emits one line per finished turn, reads each one with `succeed.sh turn <id>`, and messages a correction when needed. The successor is never pinged for status. After the watched turns it stands down and its window can be closed.
+- **Retirement** (`retirement.py`). After verification, the resumed successor acknowledges the handover through its hooks. The helper checks the recorded parent process identity and cmux surface, stops the process, and closes that tab. A failed launch leaves the parent available. Retired sessions are blocked from running tools if resumed. Outside cmux, the process stops but the terminal tab remains.
 
 `etat.sh` at `SessionStart` injects the active identity and the live git line. That is the état the opener reports and the master verifies against.
 
 `cmux-name.sh` at `SessionStart` names the cmux workspace after the session's agent name (the `ListAgents` / `SendMessage` name, e.g. `hopsable-87`, from `~/.claude/sessions/<pid>.json`). A title that already holds the name is left alone. A title that starts with an older name of the same project gets that prefix swapped and keeps the rest, so `hopsable 91 (lead)` becomes `hopsable-6d (lead)`. A default title (`Claude Code`, a path, the dir name, `successor <id>`) becomes the name. Any other title gets the name prefixed. No-op outside cmux.
 
-Codex uses `succeed.sh --runtime codex run [--open] [--briefing <file>]`. `codex.py` starts a persisted `codex exec` session, verifies identity and the opening move through a Codex judge, and prints an exact `codex resume` command. Verification is read-only. Resume carries the predecessor's model, reasoning effort, sandbox mode, and approval policy when available. The first briefed turns are checked by the Codex Stop hook; one off-track turn produces one correction. Claude peer messaging and predecessor tutelle remain Claude-specific.
+Codex uses `succeed.sh --runtime codex run [--open] [--briefing <file>]`. `codex.py` starts a persisted `codex exec` session, verifies identity and the opening move through a Codex judge, and prints an exact `codex resume` command. Verification is read-only. Resume carries the predecessor's model, reasoning effort, sandbox mode, and approval policy when available. The first briefed turns are checked by the Codex Stop hook; one off-track turn produces one correction.
 
-Codex PostToolUse injects one notice when the measured context crosses the threshold; Stop requests one continuation if needed. A successful handoff suppresses further triggers for the predecessor. The percentage cap leaves room before native compaction on smaller context windows. `--open` uses the same macOS terminal launcher as Claude; it does not create a Codex desktop tab. If no terminal can be opened, use the printed resume command.
+Codex PostToolUse injects one notice when measured context crosses the threshold; Stop requests one continuation if needed. Handoff defaults to 95% of the native auto-compaction limit, leaving room for the briefing. A large tool result can still cross both thresholds before a hook runs. SessionStart, PreToolUse, and UserPromptSubmit also handle retirement. `--open` uses the same macOS terminal launcher as Claude; it does not create a Codex desktop tab. If no terminal opens, use the printed resume command.
 
 Kill switch: `LEX_CLAUDE_HANDOFF_DISABLE=1` disables the trigger, the watch and the succession. `git revert` + `lc update` removes the wiring.
+
+Retirement requires a session-bound ancestor process. Claude uses its session
+registry; Codex uses `CODEX_THREAD_ID` or the cmux launcher PID. A mismatched
+session cannot bind to the calling agent. Before closing a cmux tab, the helper
+checks the process start time and terminal against the recorded surface.
+
+Run the hook checks with a real Codex transcript and a running cmux instance:
+
+```bash
+python3 tests/integration_codex.py --transcript /path/to/rollout.jsonl
+python3 tests/integration_retirement.py
+```
+
+The retirement suite creates disposable terminals and makes no model requests.
 
 ## Project memory (persistent across sessions)
 
@@ -333,8 +347,9 @@ lex-claude/
 ├── hook.sh                      ← SessionStart hook
 ├── etat.sh                      ← SessionStart état: active identity + live git + memory recall
 ├── master.sh                    ← drift authority: judges identity/rules/project load
-├── succeed.sh                   ← Stop-hook token trigger + successor watch + succession reroll loop
+├── succeed.sh                   ← Claude succession and successor watch
 ├── codex.py                     ← Codex hooks, context usage, verified succession, native meter setup
+├── retirement.py                ← verified parent shutdown and cmux tab closure
 ├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
 ├── cmux-name.sh                 ← SessionStart: cmux workspace title = agent name

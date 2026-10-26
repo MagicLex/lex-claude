@@ -201,6 +201,7 @@ wire_hook() {
   local scmd="bash $INSTALL_DIR/style.sh"
   local sucmd="bash $INSTALL_DIR/succeed.sh"
   local ncmd="bash $INSTALL_DIR/cmux-name.sh"
+  local rcmd="python3 $INSTALL_DIR/retirement.py hook claude"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -221,7 +222,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" --arg rcmd "$rcmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -271,7 +272,11 @@ wire_hook() {
     .hooks.SessionEnd = [
       .hooks.SessionEnd[]
       | select(all(.hooks[]?; (.command // "") | test("lex-claude/handoff") | not))
-    ]
+    ] |
+    reduce ["SessionStart", "PreToolUse", "UserPromptSubmit"][] as $event (. ;
+      .hooks[$event] = [(.hooks[$event] // [])[] |
+        .hooks = [.hooks[]? | select(.command != $rcmd)] | select(.hooks | length > 0)] |
+      .hooks[$event] += [{"hooks":[{"type":"command","command":$rcmd,"timeout":10}]}])
   ' "$SETTINGS" > "$out" && mv "$out" "$SETTINGS"; then
     echo "hook: wired"
   else
@@ -1318,16 +1323,15 @@ Notes:
   a fresh one on any failure, opens the verified one in a new terminal window
   with a kickoff prompt (it starts working on its own), and stands down. In continue mode the master then watches the successor's
   first turns (LEX_CLAUDE_WATCH_TURNS, default 3) against the briefing via its
-  Stop hook and blocks once with the reason if it drifts off track, while the
-  predecessor stays in tutelle: it peeks at the successor's transcript
-  (Monitor on succeed.sh peek, one event per finished turn) and corrects it
-  over SendMessage. Kill:
+  Stop hook and blocks once with the reason if it drifts off track. The
+  predecessor retires after the verified successor acknowledges its resume.
+  Hooks stop the parent process and close its exact cmux tab. Kill switch:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 - Codex succession uses `succeed.sh --runtime codex run`. Its native hooks need
   trust in `/hooks`. `lc tokens` reads the active `CODEX_THREAD_ID`, or an explicit
-  `--session ID`. Handoff defaults to the smaller of 600000 tokens and 75% of
-  the reported context window (`LEX_CODEX_HANDOFF_PERCENT`).
+  `--session ID`. Handoff defaults to 95% of the native auto-compaction limit
+  (`LEX_CODEX_HANDOFF_PERCENT`). `lc tokens` reports both limits.
 EOF
       ;;
     help|-h|--help|"")

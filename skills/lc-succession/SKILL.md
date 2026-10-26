@@ -31,13 +31,16 @@ use the numbered steps. Never launch Claude as a replacement for a Codex session
    `SendMessage`; those are not Codex cross-session tools. The successor's Stop
    hook judges its first `LEX_CLAUDE_WATCH_TURNS` turns against the briefing and
    asks for one correction when off track. It never blocks twice in a row.
+   After the successor acknowledges its resume, its hooks stop the verified
+   parent process and close its cmux tab. Do not monitor the successor yourself.
 5. On failure, report the actual error and retain this session. Native compaction
    remains available. Do not loop beyond the helper's retry limit.
 
 Automatic triggering requires the installed hooks to be enabled and trusted in
 Codex's `/hooks`. PostToolUse gives one handoff notice; Stop gives one continuation.
-The threshold is the smaller of `LEX_CLAUDE_HANDOFF_TOKENS` (600000 by default)
-and `LEX_CODEX_HANDOFF_PERCENT` (75 by default) of the reported context window.
+The threshold is `LEX_CODEX_HANDOFF_PERCENT` (95 by default) of Codex's native
+auto-compaction limit. `lc tokens` reports both limits. The Claude token cap does
+not apply to Codex.
 The helper never guesses a session by cwd or chooses the newest session.
 
 ## Claude Code
@@ -73,51 +76,22 @@ Steps, in order:
 
 3. **Run the succession.**
    - Clean start: `bash ~/.claude/lex-claude/succeed.sh run --open`
-   - Continue working: first call `ListAgents` and note this session's own peer
-     name (the line "This session is <name>"), then
-     `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <file> --from <name>`
-   In continue mode the master does not check a restatement; it has the successor
-   make its concrete first move on the work and judges whether that move is
-   competent and on-track (rerolls if not), then arms a watch: the successor's
-   own Stop hook has the master judge its first turns (`LEX_CLAUDE_WATCH_TURNS`,
-   default 3) against the briefing and blocks once with the reason if a turn
-   drifts off track. `--from` tells the successor to message you by name once it
-   is resumed, which gives you its address for corrections (step 4). `--open` pops the
-   verified successor in a new terminal window with a kickoff prompt, so it starts
-   the work on its own (macOS: cmux workspace / iTerm / Terminal.app;
-   other terminals fall back to the printed resume line; an open failure prints
-   its cause). Progress on stderr; outcome on stdout.
+   - Continue working: `bash ~/.claude/lex-claude/succeed.sh run --open --briefing <file>`
+   The helper verifies identity and the opening move, then arms the successor's
+   Stop hook to judge its first turns against the briefing. Run detached and
+   report progress while verification runs.
 
-4. **Relay the outcome, then tutelle (continue mode) or stand down.**
-   - `SUCCESSOR_OK <id>`, clean start → a new window opened on the successor (or,
-     if it could not, give the user the verbatim resume line printed by `succeed.sh`
-     and the printed cause). Say the successor is verified, this session is done,
-     and they can close it. Then stop.
-   - `SUCCESSOR_OK <id>`, continue mode → same relay, plus: tell the user this
-     session stays open in tutelle for the successor's first turns
-     (`LEX_CLAUDE_WATCH_TURNS`, default 3) and must not be closed yet. Then peek:
-     start `Monitor` on `bash ~/.claude/lex-claude/succeed.sh peek <id>`. It reads
-     the successor's transcript and emits one line per finished turn, then exits
-     after the watched turns. Never ping the successor to learn its state; no
-     `notify_when_idle` subscription (idle notices duplicate and misfire on
-     background waits). The successor's handshake (`<cross-session-message
-     from="<peer>">`) only gives you its address: note it, do not reply.
-     Each peek event = one finished turn: run
-     `bash ~/.claude/lex-claude/succeed.sh turn <id>` and judge that turn with
-     your full context (you know the traps the briefing could not carry; the
-     master's haiku verdict is appended for reference, not as the answer). On
-     track → nothing. Off track → one `SendMessage` to the successor: what is
-     wrong, what to do instead, concrete, one paragraph. When peek reports done,
-     send one last message ("standing down, you are on your own") and tell the
-     user this session can be closed. Stop.
-     If the user asks you something meanwhile, answer, then resume waiting.
-   - No peek event ever arriving means the successor never ran a turn (window
-     closed, or not resumed); that is fine, stay idle. Nothing to work on here.
-   - `SUCCESSION_FAILED` → tell the user succession failed the bounded retries,
-     which means identity/rules loading is likely structurally broken (worth
-     investigating, not retrying blindly). Fall back to native compaction: do
-     nothing further, just stop.
+4. **Relay the outcome and stop.**
+   - On `SUCCESSOR_OK`, relay the printed resume command and the launch result.
+     Do not monitor or message the successor. Its hooks perform the watch.
+   - The verified successor acknowledges its resume through a hook. The retirement
+     helper then stops the recorded parent process and closes its exact cmux tab.
+     A failed launch or an unacknowledged resume leaves the parent open.
+   - Retired parents are denied tools if resumed. Their terminal is closed when
+     its process and surface can be verified. Never close an unrelated surface.
+   - On `SUCCESSION_FAILED`, report the error and retain the session. Native
+     compaction remains available. Do not retry beyond the helper's limit.
 
-Note: the successor is a persisted, resumable session. Closing this one does not
-close it, and if the window did not open the user resumes it by hand with the
-printed line.
+The successor is persisted and resumable. If auto-open fails, use the printed
+resume command. Retirement also applies to Codex. Outside cmux, the verified
+parent process stops; terminal tabs are not closed automatically.

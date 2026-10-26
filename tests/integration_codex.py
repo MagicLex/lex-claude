@@ -5,6 +5,7 @@ python3 tests/integration_codex.py --transcript /path/to/rollout.jsonl
 """
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -40,6 +41,17 @@ class CodexIntegration(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith(("LEX_CLAUDE_", "LEX_CODEX_", "CODEX_"))}
         self.env.update(HOME=str(self.home), CODEX_HOME=str(self.home / ".codex"), CODEX_THREAD_ID=self.sid)
+        cache = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "models_cache.json"
+        if cache.exists():
+            (self.home / ".codex/models_cache.json").write_bytes(cache.read_bytes())
+
+    def set_usage(self, tokens, window=None):
+        event = copy.deepcopy(count)
+        event["payload"]["info"]["last_token_usage"]["total_tokens"] = tokens
+        if window is not None:
+            event["payload"]["info"]["model_context_window"] = window
+        with self.path.open("a") as stream:
+            stream.write(json.dumps(event) + "\n")
 
     def call(self, *command, data=None, env=None, success=True):
         result = subprocess.run([sys.executable, str(ROOT / "codex.py"), *command],
@@ -59,7 +71,33 @@ class CodexIntegration(unittest.TestCase):
         self.assertEqual(result["context_tokens"], expected)
         self.assertEqual(result["total_tokens"], count["payload"]["info"]["total_token_usage"]["total_tokens"])
         self.assertEqual(result["model"], context["payload"]["model"])
-        self.assertEqual(result["handoff_threshold"], min(600000, count["payload"]["info"]["model_context_window"] * 75 // 100))
+        self.assertLess(result["handoff_threshold"], result["auto_compact_token_limit"])
+        self.assertGreater(result["handoff_threshold"], result["model_context_window"] * 75 // 100)
+
+    def test_configured_compaction_and_profile(self):
+        config = self.home / ".codex/config.toml"
+        config.write_text('model_auto_compact_token_limit = 100000\n')
+        result = json.loads(self.call("tokens", "--json").stdout)
+        self.assertEqual(result["auto_compact_token_limit"], 100000)
+        self.assertEqual(result["handoff_threshold"], 95000)
+        config.write_text('profile = "small"\nmodel_auto_compact_token_limit = 100000\n'
+                          '[profiles.small]\nmodel_auto_compact_token_limit = 80000\n')
+        result = json.loads(self.call("tokens", "--json").stdout)
+        self.assertEqual(result["handoff_threshold"], 76000)
+
+    def test_large_window_has_no_claude_cap(self):
+        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = "1"
+        self.set_usage(expected, window=828400)
+        result = json.loads(self.call("tokens", "--json").stdout)
+        self.assertGreater(result["handoff_threshold"], 600000)
+
+    def test_unknown_window_does_not_trigger(self):
+        event = copy.deepcopy(count)
+        event["payload"]["info"]["model_context_window"] = None
+        with self.path.open("a") as stream:
+            stream.write(json.dumps(event) + "\n")
+        self.assertEqual(self.hook(), {})
+        self.assertIsNone(json.loads(self.call("tokens", "--json").stdout)["handoff_threshold"])
 
     def test_installed_cli_symlink_resolves_helper(self):
         install = self.home / ".claude/lex-claude"
@@ -88,10 +126,10 @@ class CodexIntegration(unittest.TestCase):
         self.assertEqual(self.hook(), {})
 
     def test_trigger_boundary_latch_and_continuation_guard(self):
-        self.env["LEX_CODEX_HANDOFF_PERCENT"] = "99"
-        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = str(expected + 1)
+        limit = json.loads(self.call("tokens", "--json").stdout)["handoff_threshold"]
+        self.set_usage(limit - 1)
         self.assertEqual(self.hook(), {})
-        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = str(expected)
+        self.set_usage(limit)
         self.assertEqual(self.hook(stop_hook_active=True), {})
         self.assertIn("additionalContext", self.hook("PostToolUse")["hookSpecificOutput"])
         self.assertEqual(self.hook("PostToolUse"), {})
@@ -99,7 +137,7 @@ class CodexIntegration(unittest.TestCase):
         self.assertEqual(self.hook(), {})
 
     def test_kill_switches_create_no_state(self):
-        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = "1"
+        self.set_usage(count["payload"]["info"]["model_context_window"])
         for switch in ("LEX_CLAUDE_DISABLE", "LEX_CLAUDE_HANDOFF_DISABLE"):
             self.env[switch] = "1"
             self.assertEqual(self.hook(), {})
@@ -111,14 +149,14 @@ class CodexIntegration(unittest.TestCase):
         result = self.call("tokens", success=False)
         self.assertEqual(result.returncode, 1)
         self.assertIn("--session", result.stderr)
-        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = "1"
+        self.set_usage(count["payload"]["info"]["model_context_window"])
         self.assertEqual(self.hook(session_id="00000000-0000-0000-0000-000000000000"), {})
 
     def test_success_suppresses_trigger(self):
         state = self.home / ".claude/lex-claude/state/.succession/codex"
         state.mkdir(parents=True)
         (state / f"{self.sid}.handed-off").touch()
-        self.env["LEX_CLAUDE_HANDOFF_TOKENS"] = "1"
+        self.set_usage(count["payload"]["info"]["model_context_window"])
         self.assertEqual(self.hook(), {})
         self.assertEqual(self.hook("PostToolUse"), {})
 

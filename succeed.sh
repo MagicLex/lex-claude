@@ -1,52 +1,6 @@
 #!/usr/bin/env bash
-# succeed.sh — token-triggered, agent-to-agent succession. The current agent
-# spawns a fresh successor near the context limit, has the master
-# verify it loaded identity/rules AND understood the project, rerolls a fresh one
-# on any failed gate (slot machine, never sway), and only then stands down.
-# After the handover the master keeps WATCHING the successor's first turns
-# (Stop hook) and feeds an off-track verdict straight back into its loop.
-#
-#   succeed.sh check                    Stop hook, every session. Two jobs:
-#                                       (1) watched successor → judge the turn it
-#                                       just finished against its briefing; block
-#                                       with the master's reason if off track.
-#                                       (2) past the token threshold → fire
-#                                       succession (once per session, latched).
-#   succeed.sh run [--open] [--briefing <file>] [--from <peer-name>]
-#                                       Spawn + verify a successor; reroll on
-#                                       failure; print the resume line (and, with
-#                                       --open, pop a new window) on pass. In
-#                                       continue mode the resume carries a kickoff
-#                                       prompt so the successor starts working on
-#                                       its own instead of idling at the prompt. No
-#                                       briefing = clean start (identity gate
-#                                       only). --briefing = continue working
-#                                       (also judge the successor's first move,
-#                                       then arm the watch on its first turns).
-#                                       --from = the predecessor's own peer name
-#                                       (ListAgents): the successor is told to
-#                                       message it once resumed, so the
-#                                       predecessor has its address for
-#                                       corrections (tutelle).
-#                                       On pass, records the lineage (generation +
-#                                       predecessor id) for the statusline.
-#   succeed.sh peek <id>                Stream for the predecessor's Monitor: one
-#                                       line per turn the successor finishes (read
-#                                       off its transcript, the successor is never
-#                                       pinged). Exits after LEX_CLAUDE_WATCH_TURNS.
-#   succeed.sh turn <id>                Print the successor's last finished turn
-#                                       (user prompt, statements, tool calls) and
-#                                       the master's latest verdict, for the
-#                                       predecessor to judge in tutelle.
-#
-# Config:
-#   LEX_CLAUDE_HANDOFF_TOKENS   trigger threshold (default 600000)
-#   LEX_CLAUDE_SUCCESSION_MAX   reroll cap (default 3)
-#   LEX_CLAUDE_WATCH_TURNS      successor turns the master + predecessor watch (default 3)
-# Kill switches: LEX_CLAUDE_DISABLE=1, LEX_CLAUDE_HANDOFF_DISABLE=1.
-# Needs jq. Reuses master.sh (next to this script) as the drift authority.
-# Codex: succeed.sh --runtime codex run [--open] [--briefing <file>].
-# Codex's native hooks and token counts are handled by codex.py.
+# Verify and resume a successor. Its hooks retire the predecessor after resume.
+# Claude uses this script; Codex delegates to codex.py.
 
 runtime="${LEX_CLAUDE_RUNTIME:-}"
 if [ "${1:-}" = "--runtime" ]; then runtime="${2:-}"; shift 2; fi
@@ -110,7 +64,7 @@ KICKOFF="Resumed after the handover: take over the briefed work now. Start with 
 # Terminal may be running. The window runs a tiny launcher script (cd,
 # then a login+interactive zsh so PATH/aliases resolve exactly as in the user's
 # shell) as the session's own command: no typing text into a shell that may not
-# be ready yet. Failures are reported on stderr, not swallowed — a silent
+# be ready yet. Failures are reported on stderr, not swallowed. A silent
 # "opened" that did not is worse than a printed resume line.
 open_successor() {
   local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
@@ -192,6 +146,9 @@ case "${1:-}" in
     transcript=$(printf '%s' "$input" | jq -r '.transcript_path // empty' 2>/dev/null)
     [ -n "$session" ] && [ -f "$transcript" ] || exit 0
 
+    retirement=$(printf '%s' "$input" | python3 "$SELF_DIR/retirement.py" hook claude) || exit 1
+    if [ "$retirement" != "{}" ]; then printf '%s\n' "$retirement"; exit 0; fi
+
     # (1) Watched successor: judge the turn it just finished. Bounded to
     # LEX_CLAUDE_WATCH_TURNS checks (a block counts), then the watch is dropped.
     # stop_hook_active = this turn is already a continuation after our block;
@@ -217,7 +174,7 @@ case "${1:-}" in
         [ "$left" -le 0 ] && rm -f "$WATCH_DIR/$session.briefing" "$WATCH_DIR/$session.left" "$WATCH_DIR/$session.launch" 2>/dev/null
         active=$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null)
         if [ "$pass" = "false" ] && [ "$active" != "true" ]; then
-          jq -n --arg r "MASTER (succession watch): this turn is OFF the briefed track — $reason. Re-read the briefing you were handed (it is in your context). If the user has asked you to work, correct course now and say in one line what you are correcting. If nobody has asked you to work yet, do NOT start working: state the correction in one line and stop." \
+          jq -n --arg r "MASTER (succession watch): this turn is OFF the briefed track. $reason. Re-read the briefing you were handed (it is in your context). If the user has asked you to work, correct course now and say in one line what you are correcting. If nobody has asked you to work yet, do NOT start working: state the correction in one line and stop." \
             '{decision:"block", reason:$r}'
           exit 0
         fi
@@ -229,7 +186,7 @@ case "${1:-}" in
     case "$threshold" in *[!0-9]*|"") exit 0 ;; esac
 
     mkdir -p "$LATCH_DIR" 2>/dev/null || exit 0
-    find "$LATCH_DIR" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$LATCH_DIR" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true
     [ -f "$LATCH_DIR/$session" ] && exit 0     # already fired this session
 
     tokens=$(context_tokens "$transcript")
@@ -244,12 +201,11 @@ case "${1:-}" in
 
   run)
     shift
-    briefing_file=""; do_open=""; from_peer=""
+    briefing_file=""; do_open=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --briefing) briefing_file="$2"; shift 2 ;;
         --open) do_open=1; shift ;;
-        --from) from_peer="$2"; shift 2 ;;
         *) echo "succeed.sh run: unknown arg $1" >&2; exit 2 ;;
       esac
     done
@@ -279,7 +235,7 @@ case "${1:-}" in
       [ -n "$uuid" ] || { echo "succeed.sh: no uuid source" >&2; exit 2; }
       echo ">> attempt $attempt/$MAX: successor $uuid" >&2
 
-      # Phase 1 — identity/rules loaded? (hook fires on this fresh session)
+      # Phase 1. identity/rules loaded? (hook fires on this fresh session)
       command claude -p --output-format json --session-id "$uuid" "$id_prompt" 2>/dev/null \
         | jq -r '.result // empty' > "$tmp/ident.txt"
       if ! "$MASTER" verify --answer "$tmp/ident.txt" --phase identity >"$tmp/v1.json" 2>/dev/null; then
@@ -288,7 +244,7 @@ case "${1:-}" in
         attempt=$((attempt+1)); continue
       fi
 
-      # Phase 2 — CONTINUE mode only (briefing given): judge the successor's first
+      # Phase 2. CONTINUE mode only (briefing given): judge the successor's first
       # actual MOVE on the work, not a restatement. Ask for its concrete opening
       # step; the master rates whether that move is competent and on-track. Kept
       # non-destructive (plan-level) so an unverified successor touches nothing.
@@ -297,19 +253,8 @@ case "${1:-}" in
 $(cat "$briefing_file")
 
 Do not summarise the briefing back. In 6 lines max, give your concrete opening
-move: the specific first step you will take and how you will do it — the actual
+move: the specific first step you will take and how you will do it. The actual
 approach, as if starting now. Do NOT modify any files yet."
-        if [ -n "$from_peer" ]; then
-          proj_prompt="$proj_prompt
-
-Tutelle: the session that did this work before you is the local peer session
-named '$from_peer'. It stays alive to watch your first turns. When you are
-resumed (the kickoff prompt after this one), your very first action, before
-any other tool call, is SendMessage to '$from_peer' with the one-line message:
-'successor $uuid live in $PWD'. Then work. Messages arriving from '$from_peer'
-are corrections from the predecessor: act on them (it outranks this briefing;
-the user outranks both). When it tells you it is standing down, carry on alone."
-        fi
         command claude -p --output-format json --resume "$uuid" "$proj_prompt" 2>/dev/null \
           | jq -r '.result // empty' > "$tmp/proj.txt"
         if ! "$MASTER" verify --answer "$tmp/proj.txt" --phase project --briefing "$briefing_file" >"$tmp/v2.json" 2>/dev/null; then
@@ -336,67 +281,31 @@ the user outranks both). When it tells you it is standing down, carry on alone."
         case "$pgen" in *[!0-9]*|"") pgen=1 ;; esac
         printf '%s\t%s\n' "$((pgen+1))" "$parent" > "$LINEAGE_DIR/$uuid" 2>/dev/null || true
       fi
+      if [ -n "$parent" ]; then
+        python3 "$SELF_DIR/retirement.py" register claude "$parent" "$uuid" || exit 1
+      fi
       echo "SUCCESSOR_OK $uuid"
       kick=""; [ -n "$briefing_file" ] && kick="$KICKOFF"
       printf 'successor verified + grounded. Resume with: '
       [ -z "${CLAUDE_CONFIG_DIR:-}" ] || printf 'CLAUDE_CONFIG_DIR=%q ' "$CLAUDE_CONFIG_DIR"
       printf 'claude --resume %s%s\n' "$uuid" "${kick:+ \"$kick\"}"
       [ -f "$WATCH_DIR/$uuid.left" ] && echo "master watch armed: its first $WATCH turns are judged against the briefing (log: $WATCH_DIR/$uuid.log)."
-      [ -n "$from_peer" ] && echo "tutelle: peek with Monitor on:  succeed.sh peek $uuid   (read each finished turn with:  succeed.sh turn $uuid)"
       if [ "$do_open" = "1" ]; then
         open_successor "$uuid" "$PWD" "$kick" && echo "opened a new terminal window on the successor (cd $PWD)." \
-          || echo "(could not auto-open a window here — use the resume line above)"
+          || echo "(could not auto-open a window here. use the resume line above)"
       fi
       rm -rf "$tmp" 2>/dev/null || true
       exit 0
     done
 
-    echo "SUCCESSION_FAILED after $MAX attempts — identity/project verification never passed." >&2
+    echo "SUCCESSION_FAILED after $MAX attempts. identity/project verification never passed." >&2
     echo "Fall back to native compaction (do nothing here); a structurally broken identity load is the signal to investigate." >&2
     rm -rf "$tmp" 2>/dev/null || true
     exit 1
     ;;
 
-  peek)
-    # Every finished turn writes one system/stop_hook_summary entry: one event per
-    # turn, no duplicates, no notion of "idle" to misread. tail -n 0: only turns
-    # finished from now on. tail -F waits for the file if it is not there yet.
-    id="${2:-}"; id=${id//[^A-Za-z0-9-]/}
-    [ -n "$id" ] || { echo "usage: succeed.sh peek <successor-id>" >&2; exit 2; }
-    WATCH="${LEX_CLAUDE_WATCH_TURNS:-3}"
-    case "$WATCH" in *[!0-9]*|"") WATCH=3 ;; esac
-    t="$(projects_dir "$PWD")/$id.jsonl"
-    fifo="$(mktemp -u 2>/dev/null || echo "/tmp/lc-peek.$$")"
-    mkfifo "$fifo" || { echo "succeed.sh peek: mkfifo failed" >&2; exit 1; }
-    tail -n 0 -F "$t" > "$fifo" 2>/dev/null & tailpid=$!
-    trap 'kill "$tailpid" 2>/dev/null; rm -f "$fifo"' EXIT
-    n=0
-    while [ "$n" -lt "$WATCH" ] && IFS= read -r line; do
-      case "$line" in *stop_hook_summary*) ;; *) continue ;; esac
-      printf '%s' "$line" | jq -e 'select(.type=="system" and .subtype=="stop_hook_summary")' >/dev/null 2>&1 || continue
-      n=$((n+1))
-      echo "successor turn $n/$WATCH finished: run  succeed.sh turn $id"
-    done < "$fifo"
-    echo "peek done: $n/$WATCH watched turns finished"
-    ;;
-
-  turn)
-    id="${2:-}"; id=${id//[^A-Za-z0-9-]/}
-    [ -n "$id" ] || { echo "usage: succeed.sh turn <successor-id>" >&2; exit 2; }
-    t="$(projects_dir "$PWD")/$id.jsonl"
-    [ -f "$t" ] || { echo "succeed.sh turn: no transcript for $id under $(projects_dir "$PWD")" >&2; exit 1; }
-    n=$(jq -Rr 'fromjson? | select(.type=="user" and (.message.content|type)=="string" and ((.message.content|startswith("<task-notification>"))|not)) | 1' "$t" 2>/dev/null | wc -l | tr -d ' ')
-    echo "=== successor $id — turn $((n-2)) since handover (last finished turn) ==="
-    render_turn "$t"
-    echo
-    if [ -f "$WATCH_DIR/$id.log" ]; then
-      echo "=== master's latest verdict (pass<TAB>reason) ==="
-      tail -1 "$WATCH_DIR/$id.log" | cut -f2-
-    fi
-    ;;
-
   *)
-    echo "usage: succeed.sh check | run [--open] [--briefing <file>] [--from <peer>] | peek <id> | turn <id>" >&2
+    echo "usage: succeed.sh check | run [--open] [--briefing <file>]" >&2
     exit 2
     ;;
 esac

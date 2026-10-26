@@ -101,13 +101,37 @@ def positive_env(name, default):
 
 
 def threshold(data):
-    limit = positive_env("LEX_CLAUDE_HANDOFF_TOKENS", 600000)
-    percent = positive_env("LEX_CODEX_HANDOFF_PERCENT", 75)
+    limit = compaction_limit(data)
+    if limit is None:
+        return None
+    percent = positive_env("LEX_CODEX_HANDOFF_PERCENT", 95)
     if percent >= 100:
         raise ValueError("LEX_CODEX_HANDOFF_PERCENT must be below 100")
+    return max(1, limit * percent // 100)
+
+
+def compaction_limit(data):
+    import tomllib
+
     window = data.get("model_context_window")
-    if isinstance(window, int) and window > 0:
-        limit = min(limit, window * percent // 100)
+    if not isinstance(window, int) or window <= 0:
+        return None
+    cache = codex_home() / "models_cache.json"
+    models = json.loads(cache.read_text()).get("models", []) if cache.exists() else []
+    model = next((m for m in models if m.get("slug") == data.get("model")), {})
+    config_path = codex_home() / "config.toml"
+    config = tomllib.loads(config_path.read_text()) if config_path.exists() else {}
+    profile = config.get("profiles", {}).get(config.get("profile"), {})
+    config.update(profile)
+    # Codex 0.164.0: ModelInfo::auto_compact_token_limit uses 90% of the
+    # raw window; token_count reports usable_context_window (95% by default).
+    effective = model.get("effective_context_window_percent", 95)
+    if not isinstance(effective, int) or not 0 < effective <= 100:
+        return None
+    limit = window * 90 // effective
+    configured = config.get("model_auto_compact_token_limit", model.get("auto_compact_token_limit"))
+    if isinstance(configured, int) and configured > 0:
+        limit = min(limit, configured)
     return limit
 
 
@@ -159,6 +183,10 @@ def hook(event):
         return {}
     sid = session_id(event["session_id"])
     name = event["hook_event_name"]
+    import retirement
+    retired = retirement.hook("codex", event)
+    if retired:
+        return retired
     if name == "SessionStart":
         text = f"Codex context usage: lc tokens --session {sid}. Handoffs use lc-succession's Codex path."
         lineage = state_dir() / f"{sid}.json"
@@ -178,7 +206,7 @@ def hook(event):
             return correction
     tokens = data.get("context_tokens")
     limit = threshold(data)
-    if not isinstance(tokens, int) or tokens < limit:
+    if limit is None or not isinstance(tokens, int) or tokens < limit:
         return {}
     root = state_dir()
     root.mkdir(parents=True, exist_ok=True)
@@ -335,7 +363,8 @@ def run(args):
              "command": command, "briefing": brief, "watch_left": watched_turns if brief else 0}
     (root / f"{sid}.json").write_text(json.dumps(saved, indent=2) + "\n")
     if parent:
-        (root / f"{session_id(parent)}.handed-off").touch()
+        import retirement
+        retirement.register("codex", parent, sid)
     print(f"SUCCESSOR_OK {sid}")
     print("Resume with: " + shlex.join(command))
     if brief and watched_turns:
@@ -355,7 +384,7 @@ def wire():
     config = json.loads(original)
     command = shlex.join(["python3", str(Path(__file__).resolve()), "hook"])
     hooks = config.setdefault("hooks", {})
-    for event in ("SessionStart", "PostToolUse", "Stop"):
+    for event in ("SessionStart", "PreToolUse", "UserPromptSubmit", "PostToolUse", "Stop"):
         groups = hooks.setdefault(event, [])
         # Remove only our handler; preserve other handlers in the same group.
         for group in groups:
@@ -421,13 +450,15 @@ def main():
             if not args.transcript and not args.session:
                 raise ValueError("no CODEX_THREAD_ID; pass --session ID or --transcript PATH")
             data = usage(args.transcript or transcript(args.session))
+            data["auto_compact_token_limit"] = compaction_limit(data)
             data["handoff_threshold"] = threshold(data)
             if args.json:
                 print(json.dumps(data))
             else:
                 value = lambda key: "unknown" if data[key] is None else str(data[key])
                 print(f"codex context: {value('context_tokens')} / {value('model_context_window')} tokens; "
-                      f"handoff: {data['handoff_threshold']}; lifetime: {value('total_tokens')}")
+                      f"handoff: {value('handoff_threshold')}; compact: {value('auto_compact_token_limit')}; "
+                      f"lifetime: {value('total_tokens')}")
             return 0 if data["context_tokens"] is not None else 1
         elif args.command == "wire":
             wire()
