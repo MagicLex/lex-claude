@@ -72,7 +72,7 @@ lc tokens --session <id> --json
 
 ## CLI
 
-### Second Claude account
+### Additional Claude accounts
 
 Create a separate configuration directory and share the reusable settings:
 
@@ -94,6 +94,23 @@ Open a new terminal, run `claude-alt`, and sign in with the second account.
 stay separate. Settings, identity, skills, and hooks are shared. Settings edits
 in either account apply to both. Plugins and user MCP connections need separate
 setup. Do not copy `.claude.json` or credential files between accounts.
+
+For a third account, create `~/.claude-alt2` with the same shared settings:
+
+```bash
+mkdir -m 700 "$HOME/.claude-alt2"
+for name in CLAUDE.md settings.json skills rules agents commands hooks statusline-command.sh; do
+  [ ! -e "$HOME/.claude/$name" ] || ln -s "$HOME/.claude/$name" "$HOME/.claude-alt2/$name"
+done
+```
+
+Add this function to the same shell configuration file:
+
+```bash
+claude-alt2() { CLAUDE_CONFIG_DIR="$HOME/.claude-alt2" command lex-claude claude "$@"; }
+```
+
+Open a new terminal, run `claude-alt2`, and sign in with the third account.
 
 When one account hits its usage limit, `lc move --to alt` (or `--to main`)
 moves every live session of the other account, or the ids given, into the

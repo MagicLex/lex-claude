@@ -36,7 +36,7 @@ case "$to" in
   main) src="$ALT_DIR" dst="$MAIN_DIR"; launch="env -u CLAUDE_CONFIG_DIR lex-claude claude" ;;
   *) die "usage: move.sh --to alt|main [--dry-run] [<session-id>...]" ;;
 esac
-[ -d "$dst" ] || die "$dst missing; set up the second account first (README: Second Claude account)"
+[ -d "$dst" ] || die "$dst missing; set up the account first (README: Additional Claude accounts)"
 command -v jq >/dev/null || die "jq missing"
 command -v cmux >/dev/null || die "cmux missing: no surface to resume in"
 
