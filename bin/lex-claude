@@ -92,7 +92,7 @@ Usage:
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
   lex-claude tokens [--session ID] [--json]            Show measured Codex context tokens and the handoff threshold.
-  lex-claude move --to alt|main [--dry-run] [ID...]    Resume live sessions on the other account in their cmux surfaces.
+  lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -1280,7 +1280,7 @@ Available subcommands (run with `lc <cmd>`):
 - `codex [--lite|--full] [prompt]`            launch Codex with lex-claude context preloaded
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `tokens [--session ID] [--json]`           measured Codex context usage and handoff threshold
-- `move --to alt|main [--dry-run] [ID...]`    resume live sessions on the other account (usage limit hit)
+- `move --to main|alt|alt2|... [--dry-run] [ID...]`  resume live sessions on another account (usage limit hit)
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default

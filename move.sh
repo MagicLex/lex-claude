@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# Move live Claude Code sessions to the other account, in their own cmux
+# Move live Claude Code sessions to another account, in their own cmux
 # surfaces, so work survives one account hitting its usage limit.
 #
-#   move.sh --to alt|main [--dry-run] [<session-id>...]
+#   move.sh --to main|alt|alt2|... [--dry-run] [<session-id>...]
+#
+# Accounts: main is ~/.claude, <name> is ~/.claude-<name>. Sources are every
+# other account.
 #
 # Per session: link its transcript into the target account's projects dir (a
 # symlink, so both accounts append to one file and the move can be reversed),
 # stop the old process (its shell stays), then type the resume command into the
-# same surface. Without ids, every live session of the source account moves.
+# same surface. Without ids, every live session of every other account moves.
 # Sessions with no cmux surface are left running and get a printed resume line.
 #
 # Background agents, shells and monitors die with the old process; the kickoff
@@ -29,12 +32,13 @@ while [ $# -gt 0 ]; do
     *) ids+=("$(printf '%s' "$1" | tr 'a-z' 'A-Z')"); shift ;;
   esac
 done
+acct_dir() { case "$1" in main) echo "$MAIN_DIR" ;; alt) echo "$ALT_DIR" ;; *) echo "$HOME/.claude-$1" ;; esac; }
 case "$to" in
-  alt) src="$MAIN_DIR" dst="$ALT_DIR"; launch="CLAUDE_CONFIG_DIR=$ALT_DIR lex-claude claude" ;;
+  "") die "usage: move.sh --to main|alt|alt2|... [--dry-run] [<session-id>...]" ;;
   # Unset, not set to ~/.claude: credentials are keyed on the config dir, so an
   # explicit default path would not find the main login.
-  main) src="$ALT_DIR" dst="$MAIN_DIR"; launch="env -u CLAUDE_CONFIG_DIR lex-claude claude" ;;
-  *) die "usage: move.sh --to alt|main [--dry-run] [<session-id>...]" ;;
+  main) dst="$MAIN_DIR"; launch="env -u CLAUDE_CONFIG_DIR lex-claude claude" ;;
+  *) dst=$(acct_dir "$to"); launch="CLAUDE_CONFIG_DIR=$dst lex-claude claude" ;;
 esac
 [ -d "$dst" ] || die "$dst missing; set up the account first (README: Additional Claude accounts)"
 command -v jq >/dev/null || die "jq missing"
@@ -57,9 +61,16 @@ trusted() {  # trusted <config-dir> <cwd>: the cwd or a parent accepted the trus
     | .key as $k | select($d == $k or ($d | startswith($k + "/")))] | length > 0' "$json" >/dev/null 2>&1
 }
 
+srcs=()
+for d in "$MAIN_DIR" "$ALT_DIR" "$HOME"/.claude-*; do
+  [ -d "$d/sessions" ] && [ "$d" != "$dst" ] || continue
+  case " ${srcs[*]-} " in *" $d "*) ;; *) srcs+=("$d") ;; esac
+done
+
 moved=0
-for f in "$src"/sessions/*.json; do
+for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done); do
   [ -f "$f" ] || continue
+  src="${f%/sessions/*}"
   pid=$(jq -r '.pid // empty' "$f"); id=$(jq -r '.sessionId // empty' "$f" | tr 'a-z' 'A-Z')
   cwd=$(jq -r '.cwd // empty' "$f"); name=$(jq -r '.name // "?"' "$f")
   [ -n "$pid" ] && [ -n "$id" ] && [ -n "$cwd" ] && kill -0 "$pid" 2>/dev/null || continue

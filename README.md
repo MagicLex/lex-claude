@@ -112,10 +112,14 @@ claude-alt2() { CLAUDE_CONFIG_DIR="$HOME/.claude-alt2" command lex-claude claude
 
 Open a new terminal, run `claude-alt2`, and sign in with the third account.
 
-When one account hits its usage limit, `lc move --to alt` (or `--to main`)
-moves every live session of the other account, or the ids given, into the
-target account. Each transcript is symlinked into the target's `projects/`, so
-both accounts append to one file. The old process is stopped and
+For a fourth account, repeat the commands above with `claude-alt3` in place of
+`claude-alt2`. Open a new terminal, run `claude-alt3`, and sign in with that account.
+
+When one account hits its usage limit, `lc move --to <account>` moves every
+live session of every other account, or the ids given, into the target
+account. `main` is `~/.claude`, any other name is `~/.claude-<name>`
+(`--to alt3` targets `~/.claude-alt3`). Each transcript is symlinked into the
+target's `projects/`, so both accounts append to one file. The old process is stopped and
 `--resume <id>` is typed into the same cmux surface with a kickoff prompt.
 Folder trust is accepted only where the source account already trusts the
 folder. Background agents, shells and monitors do not survive the move.
@@ -142,7 +146,7 @@ lc skip on|off|status                              # toggle aliases: Claude skip
 lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claude context preloaded
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
-lc move --to alt|main [--dry-run] [ID...]          # resume live sessions on the other account
+lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
