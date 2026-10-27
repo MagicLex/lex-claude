@@ -24,7 +24,8 @@ show() {
   local w b="" r=""; w=$(tput cols 2>/dev/null || echo 100); [ "$w" -gt 100 ] && w=100
   [ -t 1 ] && { b=$(tput bold); r=$(tput sgr0); }
   local t n x
-  while IFS=$'\t' read -r t n x; do
+  # Logs written before v67 hold "time name: text".
+  sed -E $'/\t/!s/^([0-9:]{8}) ([^:]+): /\\1\t\\2\t/' | while IFS=$'\t' read -r t n x; do
     x=${x#"$n"}; x=${x#[:,]}; x=${x# }
     printf '%s%s%s  %s\n' "$b" "$n" "$r" "$t"
     printf '%s\n' "$x" | fold -s -w $((w - 2)) | sed 's/^/  /'
