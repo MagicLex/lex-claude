@@ -136,10 +136,10 @@ Lex` tells the session the text did not come from its own chat. `--to NAME`
 (repeatable) limits it to named sessions. A pane with a draft or an open dialog
 refuses the paste and is reported as `FAIL`.
 
-`--ask [MIN]` asks each session to answer with `lc reply ID "text"`. Replies
+A session answers with `lc reply ID "text"`, never in its own chat. Replies
 are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
-until every reached session answered or MIN minutes (default 10) pass.
-`lc room ID` prints them later.
+until every reached session answered or `--wait MIN` minutes (default 5, 0 for
+no wait) pass. `lc room ID` prints them later.
 
 Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
 installer and identity commands manage the shared configuration in `~/.claude`.
@@ -162,7 +162,7 @@ lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claud
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
-lc say [--to NAME]... [--ask [MIN]] MESSAGE         # broadcast to every live session of this repo
+lc say [--to NAME]... [--wait MIN] MESSAGE         # broadcast to every live session of this repo
 lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
 lc room ID                                         # print the replies to a broadcast
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Talk to every live Claude session of a repo from one terminal.
 #
-#   room.sh say [--to NAME]... [--ask [MIN]] MESSAGE
+#   room.sh say [--to NAME]... [--wait MIN] MESSAGE
 #   room.sh reply ID TEXT
 #   room.sh read ID
 #
 # say pastes MESSAGE, under a header naming it a room broadcast, into the cmux
 # surface of every live session whose cwd is in this repo or one of its
 # worktrees. It skips the caller's own session and every workspace titled in
-# LEX_CLAUDE_ROOM_SKIP (default "Gate": only the leash types there). --ask asks
-# each lane to answer with `lc reply ID`, then prints the replies until every
-# reached lane answered or MIN minutes (default 10) pass.
+# LEX_CLAUDE_ROOM_SKIP (default "Gate": only the leash types there). A lane
+# answers with `lc reply ID`, never in its own chat; say prints the replies
+# until every reached lane answered or MIN minutes (default 5, 0 = no wait) pass.
 set -euo pipefail
 
 ROOM_DIR="${LEX_CLAUDE_ROOM_DIR:-$HOME/.claude/lex-claude/state/room}"
@@ -34,18 +34,18 @@ my_session() {
 }
 
 cmd_say() {
-  local to=() ask=0 wait_min=10
+  local to=() wait_min=5
   while [ $# -gt 0 ]; do
     case "$1" in
       --to) to+=("${2:?--to needs a name}"); shift 2 ;;
-      --ask) ask=1; shift; case "${1:-}" in ''|*[!0-9]*) ;; *) wait_min=$1; shift ;; esac ;;
+      --wait) wait_min="${2:-}"; shift 2; case "$wait_min" in ''|*[!0-9]*) die "--wait needs minutes" ;; esac ;;
       --) shift; break ;;
       -*) die "unknown flag $1" ;;
       *) break ;;
     esac
   done
   local msg="$*"
-  [ -n "$msg" ] || die "usage: lc say [--to NAME]... [--ask [MIN]] MESSAGE"
+  [ -n "$msg" ] || die "usage: lc say [--to NAME]... [--wait MIN] MESSAGE"
   command -v cmux >/dev/null || die "cmux missing"
   local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
   local roots; roots=$(git worktree list --porcelain | sed -n 's/^worktree //p')
@@ -62,8 +62,7 @@ cmd_say() {
 
   local id; id=$(date +%Y%m%d-%H%M%S)-$$
   local from; from=$(my_session); from=${from:-a terminal}
-  local head="[room $id] Broadcast from Lex (sent from $from) to every Claude session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work."
-  [ "$ask" = 1 ] && head="$head Answer in one line with: lc reply $id \"<answer>\" (Bash tool), not in this chat."
+  local head="[room $id] Broadcast from Lex (sent from $from) to every Claude session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through the Bash tool: lc reply $id \"<answer>\". Never answer in this chat: Lex reads replies in his terminal, not here."
   mkdir -p "$ROOM_DIR"
   : > "$ROOM_DIR/$id.log"
 
@@ -88,7 +87,7 @@ cmd_say() {
     fi
   done
   echo "$sent sent, $failed failed. id $id"
-  [ "$ask" = 1 ] && [ "$sent" -gt 0 ] || return 0
+  [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
 
   # Bounded wait: print each reply as it lands, stop when all reached lanes answered.
   local deadline=$(( $(date +%s) + wait_min * 60 )) seen=0 n
