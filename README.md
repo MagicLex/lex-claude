@@ -126,6 +126,21 @@ folder. Background agents, shells and monitors do not survive the move.
 Sessions outside cmux are skipped with a printed resume command.
 `--dry-run` lists what would move.
 
+### Room
+
+`lc say MESSAGE` pastes a broadcast into the cmux surface of every live Claude
+session whose cwd is in the current repo or one of its worktrees, on every
+account. It skips the caller's own session and workspaces titled in
+`LEX_CLAUDE_ROOM_SKIP` (default `Gate`). The header `[room ID] Broadcast from
+Lex` tells the session the text did not come from its own chat. `--to NAME`
+(repeatable) limits it to named sessions. A pane with a draft or an open dialog
+refuses the paste and is reported as `FAIL`.
+
+`--ask [MIN]` asks each session to answer with `lc reply ID "text"`. Replies
+are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
+until every reached session answered or MIN minutes (default 10) pass.
+`lc room ID` prints them later.
+
 Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
 installer and identity commands manage the shared configuration in `~/.claude`.
 
@@ -147,6 +162,9 @@ lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claud
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
+lc say [--to NAME]... [--ask [MIN]] MESSAGE         # broadcast to every live session of this repo
+lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
+lc room ID                                         # print the replies to a broadcast
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
@@ -361,7 +379,7 @@ lex-claude/
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
-├── control-room/                ← local cmux session viewer (see control-room/README.md)
+├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts to live sessions
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
 ├── identities/
