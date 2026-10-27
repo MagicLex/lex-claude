@@ -129,9 +129,9 @@ Sessions outside cmux are skipped with a printed resume command.
 ### Room
 
 `lc say MESSAGE` pastes a broadcast into the cmux surface of every live Claude
-session whose cwd is in the current repo or one of its worktrees, on every
-account. It skips the caller's own session and workspaces titled in
-`LEX_CLAUDE_ROOM_SKIP` (default `Gate`). The header `[room ID] Broadcast from
+session (every account) and Codex session whose cwd is in the current repo or
+one of its worktrees, except the caller's own. A Claude session is named by its
+session name, a Codex session by its cmux workspace title. The header `[room ID] Broadcast from
 Lex` tells the session the text did not come from its own chat. `--to NAME`
 (repeatable) limits it to named sessions. A pane with a draft or an open dialog
 refuses the paste and is reported as `FAIL`.
