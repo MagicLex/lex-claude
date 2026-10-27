@@ -146,7 +146,9 @@ no wait) pass. `lc room ID` prints them later.
 `lc lane [TASK]` opens a new cmux workspace at the repo root running `lc claude`,
 with the repo's `docs/LANE.md` as the first prompt. `{task}` in that file is
 replaced by TASK, or by "open TODO work" without one. The kickoff text lives in
-the project, next to its team rules.
+the project, next to its team rules. `--account main|alt|alt2|...` picks the
+Claude account (same names as `lc move`); without it the lane runs on the
+caller's account.
 
 Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
 installer and identity commands manage the shared configuration in `~/.claude`.
@@ -172,7 +174,7 @@ lc move --to <account> [--dry-run] [ID...]         # resume live sessions on ano
 lc say [--to NAME]... [--wait MIN] MESSAGE         # broadcast to every live session of this repo
 lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
 lc room ID                                         # print the replies to a broadcast
-lc lane [TASK]                                     # start a lane with the repo's docs/LANE.md as first prompt
+lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants

@@ -2,13 +2,23 @@
 # Start a new lane: a Claude session in a new cmux workspace at the repo root,
 # whose first prompt is the repo's docs/LANE.md with TASK filled in.
 #
-#   lane.sh [TASK]
+#   lane.sh [--account main|alt|alt2|...] [TASK]
 #
 # docs/LANE.md is the project's kickoff text; "{task}" in it is replaced by
-# TASK, or by "open TODO work" without one.
+# TASK, or by "open TODO work" without one. Without --account the lane runs on
+# the caller's account (CLAUDE_CONFIG_DIR).
 set -euo pipefail
 
 die() { echo "lane: $*" >&2; exit 1; }
+if [ "${1:-}" = --account ]; then
+  case "${2:-}" in
+    "") die "--account needs main, alt, alt2, ..." ;;
+    # Unset, not ~/.claude: credentials are keyed on the config dir.
+    main) unset CLAUDE_CONFIG_DIR ;;
+    *) CLAUDE_CONFIG_DIR="$HOME/.claude-$2"; [ -d "$CLAUDE_CONFIG_DIR" ] || die "$CLAUDE_CONFIG_DIR missing" ;;
+  esac
+  shift 2
+fi
 command -v cmux >/dev/null || die "cmux missing"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
 [ -f "$root/docs/LANE.md" ] || die "no $root/docs/LANE.md: the kickoff text for a lane"
