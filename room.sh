@@ -17,6 +17,20 @@ ROOM_DIR="${LEX_CLAUDE_ROOM_DIR:-$HOME/.claude/lex-claude/state/room}"
 SKIP="${LEX_CLAUDE_ROOM_SKIP:-Gate}"
 
 die() { echo "room: $*" >&2; exit 1; }
+
+# Log lines are "time<TAB>name<TAB>text". Print each as a bold name and time,
+# then the text wrapped and indented, with the name the lane repeated dropped.
+show() {
+  local w b="" r=""; w=$(tput cols 2>/dev/null || echo 100); [ "$w" -gt 100 ] && w=100
+  [ -t 1 ] && { b=$(tput bold); r=$(tput sgr0); }
+  local t n x
+  while IFS=$'\t' read -r t n x; do
+    x=${x#"$n"}; x=${x#[:,]}; x=${x# }
+    printf '%s%s%s  %s\n' "$b" "$n" "$r" "$t"
+    printf '%s\n' "$x" | fold -s -w $((w - 2)) | sed 's/^/  /'
+    echo
+  done
+}
 command -v jq >/dev/null || die "jq missing"
 
 # Every account's session files: main is ~/.claude, others ~/.claude-<name>.
@@ -66,7 +80,7 @@ cmd_say() {
   mkdir -p "$ROOM_DIR"
   : > "$ROOM_DIR/$id.log"
 
-  local f pid cwd name kind surface title sent=0 failed=0
+  local f pid cwd name kind surface title sent=0 failed=0 sent_to=""
   for f in $(session_files); do
     pid=$(jq -r '.pid // empty' "$f"); cwd=$(jq -r '.cwd // empty' "$f")
     name=$(jq -r '.name // "?"' "$f"); kind=$(jq -r '.kind // empty' "$f")
@@ -81,19 +95,20 @@ cmd_say() {
     title=$(printf '%s\n' "$titles" | awk -F'\t' -v s="$surface" '$1==s {print $2; exit}')
     case " $SKIP " in *" $title "*) echo "skip $name: workspace \"$title\""; continue ;; esac
     if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
-      echo "sent $name ($surface)"; sent=$((sent+1))
+      sent_to="$sent_to $name"; sent=$((sent+1))
     else
       echo "FAIL $name ($surface): $err"; failed=$((failed+1))
     fi
   done
-  echo "$sent sent, $failed failed. id $id"
+  echo "sent to$sent_to. $failed failed. id $id"
+  echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
 
   # Bounded wait: print each reply as it lands, stop when all reached lanes answered.
   local deadline=$(( $(date +%s) + wait_min * 60 )) seen=0 n
   while [ "$(date +%s)" -lt "$deadline" ]; do
     n=$(wc -l < "$ROOM_DIR/$id.log" | tr -d ' ')
-    [ "$n" -gt "$seen" ] && { tail -n +"$((seen+1))" "$ROOM_DIR/$id.log" | head -n "$((n-seen))"; seen=$n; }
+    [ "$n" -gt "$seen" ] && { tail -n +"$((seen+1))" "$ROOM_DIR/$id.log" | head -n "$((n-seen))" | show; seen=$n; }
     [ "$seen" -ge "$sent" ] && return 0
     sleep 3
   done
@@ -106,12 +121,12 @@ cmd_reply() {
   [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
   local name; name=$(my_session); name=${name:-a terminal}
   # One line per reply: the asker counts lines.
-  printf '%s %s: %s\n' "$(date +%H:%M:%S)" "$name" "$(printf '%s' "$*" | tr '\n' ' ')" >> "$ROOM_DIR/$id.log"
+  printf '%s\t%s\t%s\n' "$(date +%H:%M:%S)" "$name" "$(printf '%s' "$*" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.log"
 }
 
 cmd_read() {
   [ -f "$ROOM_DIR/${1:-}.log" ] || die "usage: lc room ID (no room message ${1:-})"
-  cat "$ROOM_DIR/$1.log"
+  show < "$ROOM_DIR/$1.log"
 }
 
 case "${1:-}" in
