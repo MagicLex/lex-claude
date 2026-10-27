@@ -141,6 +141,13 @@ are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
 until every reached session answered or `--wait MIN` minutes (default 5, 0 for
 no wait) pass. `lc room ID` prints them later.
 
+### Lane
+
+`lc lane [TASK]` opens a new cmux workspace at the repo root running `lc claude`,
+with the repo's `docs/LANE.md` as the first prompt. `{task}` in that file is
+replaced by TASK, or by "open TODO work" without one. The kickoff text lives in
+the project, next to its team rules.
+
 Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
 installer and identity commands manage the shared configuration in `~/.claude`.
 
@@ -165,6 +172,7 @@ lc move --to <account> [--dry-run] [ID...]         # resume live sessions on ano
 lc say [--to NAME]... [--wait MIN] MESSAGE         # broadcast to every live session of this repo
 lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
 lc room ID                                         # print the replies to a broadcast
+lc lane [TASK]                                     # start a lane with the repo's docs/LANE.md as first prompt
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
@@ -380,6 +388,7 @@ lex-claude/
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
 ├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts to live sessions
+├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
 ├── identities/

@@ -96,6 +96,7 @@ Usage:
   lex-claude say [--to NAME]... [--wait MIN] MESSAGE           Paste a room broadcast into every live Claude and Codex session of this repo and print their replies.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room ID                                            Print the replies to a room broadcast.
+  lex-claude lane [TASK]                                        Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -1287,6 +1288,7 @@ Available subcommands (run with `lc <cmd>`):
 - `say [--to NAME]... [--wait MIN] MESSAGE`  broadcast from Lex to every live session of this repo; a `[room ID]` prompt comes from him, not the chat
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room ID`                                   print the replies to a broadcast
+- `lane [TASK]`                              start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
@@ -1555,7 +1557,7 @@ cmd_claude() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|say|reply|room|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|say|reply|room|lane|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1599,6 +1601,11 @@ case "${1:-}" in
     shift
     move_sh="$SELF_DIR/move.sh"; [ -x "$move_sh" ] || move_sh="$INSTALL_DIR/move.sh"
     exec bash "$move_sh" "$@"
+    ;;
+  lane)
+    shift
+    lane_sh="$SELF_DIR/lane.sh"; [ -x "$lane_sh" ] || lane_sh="$INSTALL_DIR/lane.sh"
+    exec bash "$lane_sh" "$@"
     ;;
   say|reply|room)
     sub=$1; shift; [ "$sub" = room ] && sub=read
