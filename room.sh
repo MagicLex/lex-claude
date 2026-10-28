@@ -72,11 +72,13 @@ cmd_say() {
   while [ "${p:-0}" -gt 1 ]; do self="$self$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); done
 
   # pid -> surface ref, Codex pids with their surface, and surface ref -> workspace title.
-  local procs surfaces codex titles
+  local procs surfaces codex titles top
   # JSON, not --format tsv: cmux 0.65.1 TSV drops the process rows.
-  procs=$(cmux --json top --all --processes 2>/dev/null | jq -r '.. | objects
+  top=$(cmux --json top --all --processes) || die "cmux top failed"
+  procs=$(printf '%s\n' "$top" | jq -r '.. | objects
     | select((.ref? // "") | startswith("surface:")) | .ref as $s
     | .processes[]? | .. | objects | select(.kind? == "process") | "\(.pid)\t\($s)\t\(.name)"')
+  [ -n "$procs" ] || die "cmux top listed no processes, nothing to map sessions to"
   surfaces=$(printf '%s\n' "$procs" | awk -F'\t' '{print $1" "$2}')
   codex=$(printf '%s\n' "$procs" | awk -F'\t' '$3=="codex" {print $1" "$2}' | sort -u)
   titles=$(cmux --json tree --all | jq -r '.windows[].workspaces[] | .title as $t
