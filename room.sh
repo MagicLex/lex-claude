@@ -73,9 +73,12 @@ cmd_say() {
 
   # pid -> surface ref, Codex pids with their surface, and surface ref -> workspace title.
   local procs surfaces codex titles
-  procs=$(cmux top --all --processes --flat --format tsv 2>/dev/null | awk -F'\t' '$4=="process" && $6 ~ /^surface:/')
-  surfaces=$(printf '%s\n' "$procs" | awk -F'\t' '{print $5" "$6}')
-  codex=$(printf '%s\n' "$procs" | awk -F'\t' '$7=="codex" {print $5" "$6}' | sort -u)
+  # JSON, not --format tsv: cmux 0.65.1 TSV drops the process rows.
+  procs=$(cmux --json top --all --processes 2>/dev/null | jq -r '.. | objects
+    | select((.ref? // "") | startswith("surface:")) | .ref as $s
+    | .processes[]? | .. | objects | select(.kind? == "process") | "\(.pid)\t\($s)\t\(.name)"')
+  surfaces=$(printf '%s\n' "$procs" | awk -F'\t' '{print $1" "$2}')
+  codex=$(printf '%s\n' "$procs" | awk -F'\t' '$3=="codex" {print $1" "$2}' | sort -u)
   titles=$(cmux --json tree --all | jq -r '.windows[].workspaces[] | .title as $t
     | .. | objects | select((.ref? // "") | startswith("surface:")) | "\(.ref)\t\($t)"')
 
@@ -115,7 +118,7 @@ cmd_say() {
     deliver "${name:-codex-$pid}" "$pid" "$cwd" "$surface"
   done <<< "$codex"
 
-  echo "sent to$sent_to. $failed failed. id $id"
+  echo "sent to${sent_to:- nobody}. $failed failed. id $id"
   echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
 

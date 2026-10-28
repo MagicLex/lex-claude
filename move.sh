@@ -50,9 +50,11 @@ slug() { printf '%s' "$1" | sed 's#[^A-Za-z0-9]#-#g'; }
 self=" "; p=$$
 while [ "${p:-0}" -gt 1 ]; do self="$self$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); done
 
-# pid -> surface ref, from cmux's process table.
-surfaces=$(cmux top --all --processes --flat --format tsv 2>/dev/null \
-  | awk -F'\t' '$4=="process" && $6 ~ /^surface:/ {print $5" "$6}')
+# pid -> surface ref, from cmux's process table. JSON, not --format tsv:
+# cmux 0.65.1 TSV drops the process rows.
+surfaces=$(cmux --json top --all --processes 2>/dev/null | jq -r '.. | objects
+  | select((.ref? // "") | startswith("surface:")) | .ref as $s
+  | .processes[]? | .. | objects | select(.kind? == "process") | "\(.pid) \($s)"')
 
 trusted() {  # trusted <config-dir> <cwd>: the cwd or a parent accepted the trust dialog
   local json="$1/.claude.json"; [ "$1" = "$MAIN_DIR" ] && json="$HOME/.claude.json"
