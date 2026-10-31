@@ -45,15 +45,6 @@ def same_process(saved):
     return current is not None and all(current[k] == saved[k] for k in ("pid", "started", "command", "tty"))
 
 
-HERDR_ERRORS = (OSError, subprocess.SubprocessError, ValueError, KeyError)
-
-
-def herdr(*args):
-    result = subprocess.run(["herdr", *args], capture_output=True, text=True, check=True, timeout=5)
-    # Some commands (pane run) print nothing on success.
-    return json.loads(result.stdout)["result"] if result.stdout.strip() else {}
-
-
 def binding(runtime, session):
     candidates = set()
     codex_session = os.environ.get("CODEX_THREAD_ID")
@@ -67,7 +58,9 @@ def binding(runtime, session):
             except (OSError, ValueError):
                 continue
     elif codex_session and codex_session.lower() != session:
-        return {"process": None, "pane": None, "terminal": None}
+        return {"process": None, "surface": None, "workspace": None}
+    elif os.environ.get("CMUX_CODEX_PID", "").isdigit():
+        candidates.add(int(os.environ["CMUX_CODEX_PID"]))
     pid = os.getppid()
     process = None
     for _ in range(32):
@@ -79,16 +72,11 @@ def binding(runtime, session):
             process = item
             break
         pid = item["ppid"]
-    pane = os.environ.get("HERDR_PANE_ID") or None
-    # Pane ids restart with the herdr server; the terminal id tells panes apart.
-    # Unknown terminal: the handover is not acknowledged and no pane is closed.
-    terminal = None
-    if pane:
-        try:
-            terminal = herdr("pane", "get", pane)["pane"]["terminal_id"]
-        except HERDR_ERRORS:
-            pass
-    return {"process": process, "pane": pane, "terminal": terminal}
+    surface = os.environ.get("CMUX_SURFACE_ID")
+    workspace = os.environ.get("CMUX_WORKSPACE_ID")
+    if surface and workspace:
+        surface, workspace = sid(surface), sid(workspace)
+    return {"process": process, "surface": surface, "workspace": workspace}
 
 
 def register(runtime, parent, successor):
@@ -105,27 +93,29 @@ def register(runtime, parent, successor):
     write(root(runtime) / f"{successor}.parent", {"parent": parent})
 
 
-def pane_owns(target, process):
-    """The recorded pane still exists, is the same terminal, and runs the process's tty."""
-    try:
-        pane = herdr("pane", "get", target["pane"])["pane"]
-        shell = herdr("pane", "process-info", "--pane", target["pane"])["process_info"]["shell_pid"]
-    except HERDR_ERRORS:
-        return False
-    shell = ps(shell)
-    return (pane["terminal_id"] == target["terminal"] and shell is not None and
-            shell["tty"] == process["tty"] and process["tty"] != "??")
+def terminal_surfaces(target):
+    result = subprocess.run(["cmux", "--json", "--id-format", "uuids", "tree",
+                             "--workspace", target["workspace"]], capture_output=True, text=True,
+                            check=True, timeout=5)
+    return [surface for window in json.loads(result.stdout).get("windows", [])
+            for workspace in window.get("workspaces", []) if workspace["id"].lower() == target["workspace"]
+            for pane in workspace.get("panes", []) for surface in pane.get("surfaces", [])]
 
 
 def close_target(target):
     process = target.get("process")
     if not process or not same_process(process):
         return False
-    if target.get("pane"):
-        if not pane_owns(target, process):
-            raise RuntimeError("predecessor process no longer belongs to its recorded herdr pane")
-        # Closing a workspace's last pane closes the workspace.
-        herdr("pane", "close", target["pane"])
+    if target.get("surface"):
+        surfaces = terminal_surfaces(target)
+        if not any(surface["id"].lower() == target["surface"] and
+                   surface.get("tty") == process["tty"] and process["tty"] != "??"
+                   for surface in surfaces):
+            raise RuntimeError("predecessor process no longer belongs to its recorded cmux surface")
+        command = (["workspace", "close", target["workspace"]] if len(surfaces) == 1 else
+                   ["close-surface", "--surface", target["surface"], "--workspace", target["workspace"]])
+        subprocess.run(["cmux", *command, "--force"], check=True, capture_output=True,
+                       text=True, timeout=5)
     # A closed terminal may leave a process that ignores SIGHUP.
     for sig in (signal.SIGTERM, signal.SIGKILL):
         if not same_process(process):
@@ -180,11 +170,10 @@ def hook(runtime, event):
         current = binding(runtime, session)
         target = saved["target"]
         # Verification subprocesses inherit the parent's terminal. Only a live
-        # resume in another process and pane acknowledges the handover.
+        # resume in another process and surface acknowledges the handover.
         if (saved["successor"] == session and current["process"] and target["process"] and
                 current["process"]["pid"] != target["process"]["pid"] and
-                (not target.get("terminal") or
-                 (current["terminal"] and current["terminal"] != target["terminal"]))):
+                (not target["surface"] or (current["surface"] and current["surface"] != target["surface"]))):
             if not saved["ready"]:
                 saved["ready"] = True
                 saved["successor_target"] = current
@@ -198,7 +187,7 @@ def hook(runtime, event):
             reason = f"Session retired. Verified successor: {saved['successor']}. Do not resume work here."
             current = binding(runtime, session)
             successor = saved.get("successor_target", {})
-            if (current["process"] and current["terminal"] != successor.get("terminal") and
+            if (current["process"] and current["surface"] != successor.get("surface") and
                     current["process"]["pid"] != successor.get("process", {}).get("pid")):
                 launch_retirement(runtime, session, current)
             if event.get("hook_event_name") == "PreToolUse":

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook: name the herdr workspace after the session's agent name
+# SessionStart hook: name the cmux workspace after the session's agent name
 # (the name peers use with SendMessage, e.g. "hopsable-87"), read from Claude
 # Code's session registry under the active configuration directory.
 # Title rules, so hand-added suffixes like "(lead)" survive:
@@ -8,12 +8,13 @@
 #     swap that prefix for the new name, keep the rest.
 #   - default title (Claude Code, ~, a path, the dir name, successor <id>): name.
 #   - any other hand-written title: prefix it with the name.
-# No-op outside herdr. Kill switch: LEX_CLAUDE_DISABLE=1. Needs jq.
+# No-op outside cmux. Kill switch: LEX_CLAUDE_DISABLE=1. Needs jq.
 
 [ "${LEX_CLAUDE_DISABLE:-}" = "1" ] && exit 0
-[ -n "${HERDR_WORKSPACE_ID:-}" ] || exit 0
+[ -n "${CMUX_WORKSPACE_ID:-}" ] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
-command -v herdr >/dev/null 2>&1 || exit 0
+command -v cmux >/dev/null 2>&1 || exit 0
+export CMUX_QUIET=1
 
 input=$(cat)
 sid=$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null | tr 'a-z' 'A-Z')
@@ -40,7 +41,8 @@ rename() {
   done
   [ -n "$name" ] || return 0
 
-  title=$(herdr workspace get "$HERDR_WORKSPACE_ID" 2>/dev/null | jq -r '.result.workspace.label // empty' 2>/dev/null)
+  title=$(cmux workspace list --id-format both 2>/dev/null \
+    | awk -v id="$CMUX_WORKSPACE_ID" '$0 ~ id { sub(/^.*[0-9A-F-]{36}  /, ""); sub(/  \[selected\]$/, ""); print; exit }')
   [ -n "$title" ] || return 0
   case " $(norm "$title") " in *" $(norm "$name") "*) return 0 ;; esac
 
@@ -59,7 +61,7 @@ rename() {
       *) new="$name $title" ;;
     esac
   fi
-  herdr workspace rename "$HERDR_WORKSPACE_ID" "$new" >/dev/null 2>&1
+  cmux workspace rename "$CMUX_WORKSPACE_ID" --title "$new" >/dev/null 2>&1
 }
 
 # Detached: never delay session start.

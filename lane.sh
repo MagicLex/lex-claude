@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start a new lane: a Claude session in a new herdr workspace at the repo root,
+# Start a new lane: a Claude session in a new cmux workspace at the repo root,
 # whose first prompt is the repo's docs/LANE.md with TASK filled in.
 #
 #   lane.sh [--account main|alt|alt2|...] [TASK]
@@ -19,8 +19,7 @@ if [ "${1:-}" = --account ]; then
   esac
   shift 2
 fi
-command -v herdr >/dev/null || die "herdr missing"
-command -v jq >/dev/null || die "jq missing"
+command -v cmux >/dev/null || die "cmux missing"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
 [ -f "$root/docs/LANE.md" ] || die "no $root/docs/LANE.md: the kickoff text for a lane"
 
@@ -32,17 +31,13 @@ TASK="$task" python3 -c 'import os,sys; sys.stdout.write(open(sys.argv[1]).read(
 
 {
   printf '#!/bin/bash\n'
-  # A herdr server started from a Claude session leaks that session's CLAUDE_*
-  # variables into every pane. A child-session marker stops the transcript.
-  printf 'for v in $(compgen -e); do case $v in CLAUDE_CONFIG_DIR) ;; CLAUDECODE|CLAUDE_*) unset "$v" ;; esac; done\n'
+  # A cmux started from a Claude session leaks the child-session marker into its shells.
+  printf 'unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION\n'
   if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then printf 'export CLAUDE_CONFIG_DIR=%q\n' "$CLAUDE_CONFIG_DIR"; else printf 'unset CLAUDE_CONFIG_DIR\n'; fi
   printf 'cd %q && exec /bin/zsh -lic %q\n' "$root" "lc claude \"\$(cat $(printf '%q' "$dir/$id.prompt"))\""
 } > "$dir/$id.launch"
 chmod +x "$dir/$id.launch"
 
-# The launcher runs in the workspace's own shell, so the pane outlives claude
-# (lc move types the resume command into it).
-pane=$(herdr workspace create --cwd "$root" --label lane --focus | jq -r '.result.root_pane.pane_id // empty')
-[ -n "$pane" ] || die "herdr workspace create failed"
-herdr pane run "$pane" "$(printf '%q' "$dir/$id.launch")" >/dev/null || die "herdr pane run $pane failed"
+CMUX_QUIET=1 cmux workspace create --name "lane" --description "$task" \
+  --cwd "$root" --command "$dir/$id.launch" --focus true >/dev/null
 echo "lane started in $(basename "$root"): $task"

@@ -120,24 +120,21 @@ live session of every other account, or the ids given, into the target
 account. `main` is `~/.claude`, any other name is `~/.claude-<name>`
 (`--to alt3` targets `~/.claude-alt3`). Each transcript is symlinked into the
 target's `projects/`, so both accounts append to one file. The old process is stopped and
-`--resume <id>` is typed into the same herdr pane with a kickoff prompt.
+`--resume <id>` is typed into the same cmux surface with a kickoff prompt.
 Folder trust is accepted only where the source account already trusts the
 folder. Background agents, shells and monitors do not survive the move.
-Sessions outside herdr are skipped with a printed resume command. Sessions map
-to panes through the session id herdr's Claude integration reports
-(`herdr agent list`).
+Sessions outside cmux are skipped with a printed resume command.
 `--dry-run` lists what would move.
 
 ### Room
 
-`lc say MESSAGE` types a broadcast into the herdr pane of every live Claude
+`lc say MESSAGE` pastes a broadcast into the cmux surface of every live Claude
 session (every account) and Codex session whose cwd is in the current repo or
 one of its worktrees, except the caller's own. A Claude session is named by its
-session name, a Codex session by its herdr workspace label. The header `[room ID] Broadcast from
+session name, a Codex session by its cmux workspace title. The header `[room ID] Broadcast from
 Lex` tells the session the text did not come from its own chat. `--to NAME`
-(repeatable) limits it to named sessions. A session with an open dialog
-(herdr status `blocked`) is reported as `FAIL`. herdr cannot see a draft in
-the prompt: the broadcast joins it and is submitted with it.
+(repeatable) limits it to named sessions. A pane with a draft or an open dialog
+refuses the paste and is reported as `FAIL`.
 
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
 are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
@@ -146,7 +143,7 @@ no wait) pass. `lc room ID` prints them later.
 
 ### Lane
 
-`lc lane [TASK]` opens a new herdr workspace at the repo root running `lc claude`,
+`lc lane [TASK]` opens a new cmux workspace at the repo root running `lc claude`,
 with the repo's `docs/LANE.md` as the first prompt. `{task}` in that file is
 replaced by TASK, or by "open TODO work" without one. The kickoff text lives in
 the project, next to its team rules. `--account main|alt|alt2|...` picks the
@@ -314,12 +311,12 @@ Identity and rules loading is verified live by a judge. Work near the context li
 
 - **Master** (`master.sh`). A neutral judge spawned on demand with `claude -p` and the identity hook disabled, so it does not judge itself. Ground truth is the resolved `~/.claude/CLAUDE.md`, plus the briefing for the project phases. Two phases: `identity` (did the subject load the identity and rules) and `project` (did it understand the briefed work). Verdict is strict JSON. Anything unparseable fails.
 - **Cold start** (`lc claude`). The launcher runs the identity self-report as turn 1 of a fresh session and has the master judge it before handing over the seat. On failure it repairs the identity symlink and rerolls, up to `LEX_CLAUDE_SUCCESSION_MAX` times, then launches anyway with a warning. Skip with `LEX_CLAUDE_COLDSTART_DISABLE=1`.
-- **Succession** (`succeed.sh` + `/lc-succession`). The `Stop` hook reads the context size from the transcript. Past `LEX_CLAUDE_HANDOFF_TOKENS` it blocks once and invokes the skill. The skill writes a briefing from the live context, then `succeed.sh run` spawns a successor, has the master check its identity and then its first move on the work, and rerolls on failure. On pass it prints `claude --resume <id>`, plus a kickoff prompt in continue mode so the successor starts working without a nudge. With `--open` it opens the resume in a new herdr workspace, iTerm window, or Terminal window, through `lc claude`, so both sessions share the same model and permission mode. Successors, lanes and `lc claude` seats drop every inherited `CLAUDECODE` and `CLAUDE_*` variable except `CLAUDE_CONFIG_DIR`: a terminal app started from inside Claude leaks them into every shell, and a session carrying `CLAUDE_CODE_CHILD_SESSION` saves no transcript. On pass it also records the lineage (`state/lineage/<id>`: generation and predecessor id), which the statusline shows as `genN ←<id>`. On exhaustion it stops and native compaction takes over.
-- **Retirement** (`retirement.py`). The resumed successor acknowledges the handover through its hooks. The parent is retired right away, with no review window. The helper checks the recorded parent process identity and herdr pane, closes that pane, and stops the process. A failed launch leaves the parent available. Retired sessions are blocked from running tools if resumed. Outside herdr, the process stops but the terminal tab remains.
+- **Succession** (`succeed.sh` + `/lc-succession`). The `Stop` hook reads the context size from the transcript. Past `LEX_CLAUDE_HANDOFF_TOKENS` it blocks once and invokes the skill. The skill writes a briefing from the live context, then `succeed.sh run` spawns a successor, has the master check its identity and then its first move on the work, and rerolls on failure. On pass it prints `claude --resume <id>`, plus a kickoff prompt in continue mode so the successor starts working without a nudge. With `--open` it opens the resume in a new cmux workspace, iTerm window, or Terminal window, through `lc claude`, so both sessions share the same model and permission mode. Successors and `lc claude` seats drop the inherited `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION` markers: a terminal app started from inside Claude leaks them into every shell, and a marked session is not resumable. On pass it also records the lineage (`state/lineage/<id>`: generation and predecessor id), which the statusline shows as `genN ←<id>`. On exhaustion it stops and native compaction takes over.
+- **Retirement** (`retirement.py`). The resumed successor acknowledges the handover through its hooks. The parent is retired right away, with no review window. The helper checks the recorded parent process identity and cmux surface, stops the process, and closes that tab. A failed launch leaves the parent available. Retired sessions are blocked from running tools if resumed. Outside cmux, the process stops but the terminal tab remains.
 
 `etat.sh` at `SessionStart` injects the active identity and the live git line. That is the état the opener reports and the master verifies against.
 
-`herdr-name.sh` at `SessionStart` names the herdr workspace after the session's agent name (the `ListAgents` / `SendMessage` name, e.g. `hopsable-87`, from `~/.claude/sessions/<pid>.json`). A title that already holds the name is left alone. A title that starts with an older name of the same project gets that prefix swapped and keeps the rest, so `hopsable 91 (lead)` becomes `hopsable-6d (lead)`. A default title (`Claude Code`, a path, the dir name, `successor <id>`) becomes the name. Any other title gets the name prefixed. No-op outside herdr.
+`cmux-name.sh` at `SessionStart` names the cmux workspace after the session's agent name (the `ListAgents` / `SendMessage` name, e.g. `hopsable-87`, from `~/.claude/sessions/<pid>.json`). A title that already holds the name is left alone. A title that starts with an older name of the same project gets that prefix swapped and keeps the rest, so `hopsable 91 (lead)` becomes `hopsable-6d (lead)`. A default title (`Claude Code`, a path, the dir name, `successor <id>`) becomes the name. Any other title gets the name prefixed. No-op outside cmux.
 
 Codex uses `succeed.sh --runtime codex run [--open] [--briefing <file>]`. `codex.py` starts a persisted `codex exec` session, verifies identity and the opening move through a Codex judge, and prints an exact `codex resume` command. Verification is read-only. Resume carries the predecessor's model, reasoning effort, sandbox mode, and approval policy when available.
 
@@ -328,12 +325,11 @@ Codex PostToolUse injects one notice when measured context crosses the threshold
 Kill switch: `LEX_CLAUDE_HANDOFF_DISABLE=1` disables the trigger and the succession. `git revert` + `lc update` removes the wiring.
 
 Retirement requires a session-bound ancestor process. Claude uses its session
-registry; Codex uses `CODEX_THREAD_ID` and its `codex` ancestor process. A mismatched
-session cannot bind to the calling agent. Before closing a herdr pane, the helper
-checks the process start time, the pane's terminal id, and that the pane's tty
-is the process's tty.
+registry; Codex uses `CODEX_THREAD_ID` or the cmux launcher PID. A mismatched
+session cannot bind to the calling agent. Before closing a cmux tab, the helper
+checks the process start time and terminal against the recorded surface.
 
-Run the hook checks with a real Codex transcript and a running herdr server:
+Run the hook checks with a real Codex transcript and a running cmux instance:
 
 ```bash
 python3 tests/integration_codex.py --transcript /path/to/rollout.jsonl
@@ -384,10 +380,10 @@ lex-claude/
 ├── master.sh                    ← drift authority: judges identity/rules/project load
 ├── succeed.sh                   ← Claude succession
 ├── codex.py                     ← Codex hooks, context usage, verified succession, native meter setup
-├── retirement.py                ← verified parent shutdown and herdr pane closure
+├── retirement.py                ← verified parent shutdown and cmux tab closure
 ├── memory.py                    ← persistent project memory: forget-by-use + write-time supersession
 ├── watch.sh                     ← SessionStart watchPaths + FileChanged staleness nudge
-├── herdr-name.sh                ← SessionStart: herdr workspace label = agent name
+├── cmux-name.sh                 ← SessionStart: cmux workspace title = agent name
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)

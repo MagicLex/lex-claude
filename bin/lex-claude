@@ -92,11 +92,11 @@ Usage:
   lex-claude init claude                             Print the context the SessionStart hook loads into Claude Code.
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
   lex-claude tokens [--session ID] [--json]            Show measured Codex context tokens and the handoff threshold.
-  lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their herdr panes.
+  lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
   lex-claude say [--to NAME]... [--wait MIN] MESSAGE           Paste a room broadcast into every live Claude and Codex session of this repo and print their replies.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room ID                                            Print the replies to a room broadcast.
-  lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new herdr workspace with the repo's docs/LANE.md as its first prompt.
+  lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -204,7 +204,7 @@ wire_hook() {
   local dcmd="bash $INSTALL_DIR/digest.sh"
   local scmd="bash $INSTALL_DIR/style.sh"
   local sucmd="bash $INSTALL_DIR/succeed.sh"
-  local ncmd="bash $INSTALL_DIR/herdr-name.sh"
+  local ncmd="bash $INSTALL_DIR/cmux-name.sh"
   local rcmd="python3 $INSTALL_DIR/retirement.py hook claude"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
@@ -231,7 +231,7 @@ wire_hook() {
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
       .hooks.SessionStart[]
-      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch") or test("lex-claude/cmux-name") or test("lex-claude/herdr-name")) | not))
+      | select(all(.hooks[]?; (.command // "") | (test("JeanJean") or test("lex-claude/hook") or test("lex-claude/watch") or test("lex-claude/cmux-name")) | not))
     ] |
     .hooks.SessionStart += [
       {"hooks":[{"type":"command","command":$cmd}]},
@@ -622,7 +622,7 @@ SKIP_BEGIN_OLD='# >>> lex-claude skip >>>'
 SKIP_END_OLD='# <<< lex-claude skip <<<'
 FN_BEGIN='# >>> lex-claude claude >>>'
 FN_END='# <<< lex-claude claude <<<'
-FN_MARK='lex-claude claude router v4'   # bump when _claude_fn_block changes → old blocks get replaced
+FN_MARK='lex-claude claude router v3'   # bump when _claude_fn_block changes → old blocks get replaced
 
 rc_file() {
   case "$(basename "${SHELL:-}")" in
@@ -640,10 +640,25 @@ _strip_rc_block() {
 
 _claude_fn_block() {
   cat <<'BLOCK'
-# lex-claude claude router v4. Routes `claude` through `lc claude` so every
+# lex-claude claude router v3 — routes `claude` through `lc claude` so every
 # interactive launch gets the cold-start identity/rules check. Model and skip
 # flags are applied by `lc claude` itself. `command claude` bypasses this.
-claude() { command lex-claude claude "$@"; }
+# Terminals that ship their own claude wrapper (cmux) redefine claude() after
+# this rc runs, so the router is re-installed before each command (zsh preexec,
+# bash PROMPT_COMMAND). `lc claude` resolves claude via PATH, so the terminal's
+# shim still wraps the real binary.
+_lc_claude_router() {
+  claude() { command lex-claude claude "$@"; }
+}
+_lc_claude_router
+if [ -n "${ZSH_VERSION:-}" ]; then
+  autoload -Uz add-zsh-hook && add-zsh-hook preexec _lc_claude_router
+elif [ -n "${BASH_VERSION:-}" ]; then
+  case ";${PROMPT_COMMAND:-};" in
+    *";_lc_claude_router;"*) ;;
+    *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_lc_claude_router" ;;
+  esac
+fi
 codex() {
   local _f=()
   [ -f "$HOME/.claude/lex-claude/.skip" ] && _f+=(--dangerously-bypass-approvals-and-sandbox)
@@ -1273,7 +1288,7 @@ Available subcommands (run with `lc <cmd>`):
 - `say [--to NAME]... [--wait MIN] MESSAGE`  broadcast from Lex to every live session of this repo; a `[room ID]` prompt comes from him, not the chat
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room ID`                                   print the replies to a broadcast
-- `lane [--account NAME] [TASK]`             start a new lane: herdr workspace + `lc claude` with docs/LANE.md, TASK filled in
+- `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
@@ -1316,7 +1331,7 @@ Notes:
   a fresh one on any failure, opens the verified one in a new terminal window
   with a kickoff prompt (it starts working on its own), and stands down. The
   predecessor retires as soon as the verified successor acknowledges its
-  resume: hooks stop the parent process and close its exact herdr pane. Kill switch:
+  resume: hooks stop the parent process and close its exact cmux tab. Kill switch:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
 - This reference is auto-loaded at session start by the SessionStart hook.
 - Codex succession uses `succeed.sh --runtime codex run`. Its native hooks need
@@ -1461,11 +1476,9 @@ cmd_claude() {
   # /usr/bin/command shim exists (macOS); Linux has none → "exec: command: not
   # found". type -P is path-only, so the rc router function is never re-entered.
   local claude_bin; claude_bin=$(type -P claude) || die "claude not found in PATH"
-  # A seat launched here is top-level. A terminal app started inside Claude
-  # leaks that session's CLAUDE_* variables into every shell; its child-session
-  # marker disables transcript persistence.
-  local v
-  for v in $(compgen -e); do case $v in CLAUDE_CONFIG_DIR) ;; CLAUDECODE|CLAUDE_*) unset "$v" ;; esac; done
+  # A seat launched here is top-level. A child-session marker inherited from a
+  # terminal app started inside Claude disables transcript persistence.
+  unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION
   local _f=()
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
