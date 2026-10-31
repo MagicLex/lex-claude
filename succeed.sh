@@ -42,35 +42,37 @@ projects_dir() { printf '%s/projects/%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "
 KICKOFF="Resumed after the handover: take over the briefed work now. Start with the opening move you gave, then carry on."
 
 # Open the verified successor in a NEW terminal window running `claude --resume`.
-# macOS only: cmux (new workspace, via its CLI), iTerm, Terminal.app. cmux is
-# checked first: inside it TERM_PROGRAM reads ghostty and neither iTerm nor
-# Terminal may be running. The window runs a tiny launcher script (cd,
-# then a login+interactive zsh so PATH/aliases resolve exactly as in the user's
-# shell) as the session's own command: no typing text into a shell that may not
-# be ready yet. Failures are reported on stderr, not swallowed. A silent
+# herdr (new workspace, via its CLI), else iTerm or Terminal.app on macOS.
+# herdr is checked first: inside it TERM_PROGRAM names the host terminal. The
+# window runs a tiny launcher script (cd, then a login+interactive zsh so
+# PATH/aliases resolve exactly as in the user's shell). Failures are reported
+# on stderr, not swallowed. A silent
 # "opened" that did not is worse than a printed resume line.
 open_successor() {
   local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
   launcher="$LATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
-  case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not macOS, no auto-open" >&2; return 1 ;; esac
-  case "${TERM_PROGRAM:-}" in
-    iTerm.app) app=iTerm ;;
-    Apple_Terminal) app=Terminal ;;
-    *) # TERM_PROGRAM may not reach a hook/tool shell; use whichever is running.
-       if [ -n "${CMUX_SOCKET_PATH:-}" ] && command -v cmux >/dev/null 2>&1; then app=cmux
-       elif pgrep -xq iTerm2 2>/dev/null; then app=iTerm
-       elif pgrep -xq Terminal 2>/dev/null; then app=Terminal
-       else echo "   open: no cmux/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
-  esac
-  [ "$app" = cmux ] || command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
+  if [ -n "${HERDR_SOCKET_PATH:-}" ] && command -v herdr >/dev/null 2>&1; then app=herdr
+  else
+    case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not in herdr and not macOS, no auto-open" >&2; return 1 ;; esac
+    case "${TERM_PROGRAM:-}" in
+      iTerm.app) app=iTerm ;;
+      Apple_Terminal) app=Terminal ;;
+      *) # TERM_PROGRAM may not reach a hook/tool shell; use whichever is running.
+         if pgrep -xq iTerm2 2>/dev/null; then app=iTerm
+         elif pgrep -xq Terminal 2>/dev/null; then app=Terminal
+         else echo "   open: no herdr/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
+    esac
+    command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
+  fi
   mkdir -p "$LATCH_DIR" 2>/dev/null || return 1
   # Single-quote the dir for the shell ('\'' escapes an embedded quote).
   qdir=$(printf '%s' "$dir" | sed "s/'/'\\\\''/g")
   {
     printf '#!/bin/bash\n'
     # The terminal app may itself have been launched from a Claude session and
-    # leak the child-session marker into every shell it opens.
-    printf 'unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION\n'
+    # leak its CLAUDE_* variables into every shell it opens. A child-session
+    # marker stops the transcript.
+    printf 'for v in $(compgen -e); do case $v in CLAUDE_CONFIG_DIR) ;; CLAUDECODE|CLAUDE_*) unset "$v" ;; esac; done\n'
     if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
       printf 'export CLAUDE_CONFIG_DIR=%q\n' "$CLAUDE_CONFIG_DIR"
     else
@@ -89,15 +91,14 @@ open_successor() {
     fi
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
-    cmux)
-      # cmux prints "OK workspace:N" on success and "Error: ..." (exit != 0) otherwise.
-      # cmux-name.sh renames the workspace to the agent name once claude starts; the description stays
-      # and marks it as a successor in the sidebar (same lineage as the statusline).
-      local gen="" parent="" desc="successor"
-      [ -f "$LINEAGE_DIR/$id" ] && IFS=$'\t' read -r gen parent < "$LINEAGE_DIR/$id"
-      [ -n "$gen" ] && [ -n "$parent" ] && desc="successor gen$gen ←$(printf '%s' "${parent:0:8}" | tr 'A-Z' 'a-z')"
-      err=$(CMUX_QUIET=1 cmux workspace create --name "successor ${id%%-*}" --description "$desc" \
-        --cwd "$dir" --command "$launcher" --focus true 2>&1) && err="" ;;
+    herdr)
+      # herdr-name.sh renames the workspace to the agent name once claude starts.
+      # The launcher runs in the workspace's own shell, so the pane outlives claude.
+      local out pane
+      out=$(herdr workspace create --cwd "$dir" --label "successor ${id%%-*}" --focus 2>&1)
+      pane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
+      if [ -z "$pane" ]; then err=$out
+      else err=$(herdr pane run "$pane" "$(printf '%q' "$launcher")" 2>&1) && err=""; fi ;;
     iTerm)
       err=$(osascript 2>&1 >/dev/null <<OSA
 tell application "iTerm"
@@ -173,8 +174,10 @@ case "${1:-}" in
     pdir=$(projects_dir "$PWD")
     # This runs from the predecessor's Bash tool, which marks children as child
     # sessions. A marked session is not persisted, so `--resume <uuid>` on the
-    # successor would find nothing. The successor is a top-level session.
-    unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION
+    # successor would find nothing. The successor is a top-level session: drop
+    # every inherited CLAUDE_* variable, keeping the parent id for the lineage.
+    parent="${CLAUDE_CODE_SESSION_ID:-}"; parent=${parent//[^A-Za-z0-9-]/}
+    for v in $(compgen -e); do case $v in CLAUDE_CONFIG_DIR) ;; CLAUDECODE|CLAUDE_*) unset "$v" ;; esac; done
 
     id_prompt="In 6 lines max: state your identity (name) and your core non-negotiable rules, in your own words."
 
@@ -216,7 +219,6 @@ approach, as if starting now. Do NOT modify any files yet."
       # Both gates passed. Leave the session resumable; stand down.
       # Lineage: this session (the caller's, from Claude Code's env) is the parent;
       # a session with no record is generation 1.
-      parent="${CLAUDE_CODE_SESSION_ID:-}"; parent=${parent//[^A-Za-z0-9-]/}
       if [ -n "$parent" ] && mkdir -p "$LINEAGE_DIR" 2>/dev/null; then
         pgen=$(cut -f1 "$LINEAGE_DIR/$parent" 2>/dev/null)
         case "$pgen" in *[!0-9]*|"") pgen=1 ;; esac

@@ -30,7 +30,7 @@ use the numbered steps. Never launch Claude as a replacement for a Codex session
    relaying the result. Do not call Claude's `ListAgents`, `Monitor`, or
    `SendMessage`; those are not Codex cross-session tools. As soon as the
    successor acknowledges its resume, its hooks stop the verified parent
-   process and close its cmux tab. Do not monitor the successor yourself.
+   process and close its herdr pane. Do not monitor the successor yourself.
 5. On failure, report the actual error and retain this session. Native compaction
    remains available. Do not loop beyond the helper's retry limit.
 
@@ -83,13 +83,13 @@ Steps, in order:
      Do not monitor or message the successor.
    - The verified successor acknowledges its resume through a hook. The retirement
      helper then stops the recorded parent process right away and closes its
-     exact cmux tab. This is the last turn of this session: no review after it.
+     exact herdr pane. This is the last turn of this session: no review after it.
      A failed launch or an unacknowledged resume leaves the parent open.
    - Retired parents are denied tools if resumed. Their terminal is closed when
-     its process and surface can be verified. Never close an unrelated surface.
+     its process and pane can be verified. Never close an unrelated pane.
    - On `SUCCESSION_FAILED`, report the error and retain the session. Native
      compaction remains available. Do not retry beyond the helper's limit.
 
 The successor is persisted and resumable. If auto-open fails, use the printed
-resume command. Retirement also applies to Codex. Outside cmux, the verified
+resume command. Retirement also applies to Codex. Outside herdr, the verified
 parent process stops; terminal tabs are not closed automatically.
