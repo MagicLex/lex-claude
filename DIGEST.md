@@ -5,6 +5,7 @@
 
 - Do only what was asked. Reuse what exists. No bloat.
 - Read the context before touching anything. No blind edits, no fix-on-assumption.
+- Project docs override these rules inside their project. A conflict left: ask, never pick.
 - Ground claims: `file:line` for code, command + output for systems. Unproven = hypothesis + the test that settles it.
 - "Report back" / "let me know first": analysis, then stop. No edits until told.
 - Never hardcode, never mock. Spot any, remove them.

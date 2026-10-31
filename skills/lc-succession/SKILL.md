@@ -71,6 +71,12 @@ Steps, in order:
      from git; any trap (server-side state, a pending choice, a gotcha). Keep it
      to what a fresh agent needs to continue without re-deriving. Do not restate
      rules/identity. The successor loads those and the master verifies them.
+   - **Standing rules from this session go to a file first, never into the
+     briefing.** A rule the user gave in chat ("always X", "never Y", "AGAIN")
+     that no doc or memory holds yet is written to the project's rule file
+     (docs/TEAM.md or PRINCIPLES.md when the project has one, else memory) before
+     the handoff, as a one-line addition. The briefing names it by `file:line`.
+     A paraphrased rule loses detail at every handoff; the file is read verbatim.
 
 3. **Run the succession.**
    - Clean start: `bash ~/.claude/lex-claude/succeed.sh run --open`

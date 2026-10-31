@@ -292,7 +292,7 @@ $CLAUDE_PROJECT_DIR/
     └── TODO.md
 ```
 
-All optional. Only what exists is loaded.
+All optional. Only what exists is loaded, in the order above, each file whole while the output stays under `LEX_CLAUDE_HOOK_BUDGET` chars (default 9000). Claude Code turns a SessionStart output over about 10,000 chars into a 2 KB preview plus a file path, so a bigger bundle reaches the model as nothing. Files past the budget are listed by path with a read instruction, and the `lc` reference shrinks to a pointer to `lc init claude`. Codex has no such cut: its bundle stays whole.
 
 The active identity at `~/.claude/CLAUDE.md` (symlink → `identities/<name>.md`, rules inlined) is loaded natively by Claude Code, so `hook.sh` does not re-inject it. Codex gets the same identity through the `~/.codex/AGENTS.md` symlink and the bundled skills through `~/.codex/skills/` (see Codex bridge above).
 

@@ -1333,7 +1333,7 @@ Notes:
   predecessor retires as soon as the verified successor acknowledges its
   resume: hooks stop the parent process and close its exact cmux tab. Kill switch:
   LEX_CLAUDE_HANDOFF_DISABLE=1.
-- This reference is auto-loaded at session start by the SessionStart hook.
+- The SessionStart hook loads this reference when it fits the hook budget, else a pointer to `lc init claude`.
 - Codex succession uses `succeed.sh --runtime codex run`. Its native hooks need
   trust in `/hooks`. `lc tokens` reads the active `CODEX_THREAD_ID`, or an explicit
   `--session ID`. Handoff defaults to 95% of the native auto-compaction limit

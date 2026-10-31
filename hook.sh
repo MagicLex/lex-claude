@@ -25,24 +25,44 @@ fi
 ETAT_SH="$SELF_DIR/etat.sh"
 [ -f "$ETAT_SH" ] && bash "$ETAT_SH" start
 
+# Claude Code shows a SessionStart output over ~10,000 chars only as a 2 KB
+# preview plus a file path, so an oversized bundle silently drops every doc.
+# Each file goes in whole while it fits the budget; the rest are listed by path
+# for the session to read when its work touches them.
+# Codex takes the bundle as its first prompt, with no such cut.
+if [ "${LEX_CLAUDE_RUNTIME:-claude}" = codex ]; then BUDGET="${LEX_CLAUDE_HOOK_BUDGET:-10000000}"; else BUDGET="${LEX_CLAUDE_HOOK_BUDGET:-9000}"; fi
+case "$BUDGET" in *[!0-9]*|"") BUDGET=9000 ;; esac
+used=600  # état, language and the closing lines
+skipped=""
+
 project_files="CLAUDE.md"
 if [ "$LEX_CLAUDE_CONTEXT_MODE" != "lite" ]; then
-  project_files="$project_files docs/PHILOSOPHY.md docs/CONTEXT.md docs/PRINCIPLES.md docs/INVARIANTS.md docs/OPS.md docs/TODO.md"
+  project_files="$project_files docs/PHILOSOPHY.md docs/PRINCIPLES.md docs/CONTEXT.md docs/INVARIANTS.md docs/OPS.md docs/TODO.md"
 fi
 
 for f in $project_files; do
   p="${CLAUDE_PROJECT_DIR:-$PWD}/$f"
-  if [ -f "$p" ]; then
+  [ -f "$p" ] || continue
+  size=$(wc -c < "$p" | tr -d ' ')
+  if [ $((used + size + 40)) -le "$BUDGET" ]; then
     printf '\n===== %s =====\n' "$f"
     cat "$p"
+    used=$((used + size + 40))
+  else
+    skipped="$skipped $f"
   fi
 done
 
 LEX_CLAUDE_CLI="$SELF_DIR/bin/lex-claude"
 [ -x "$LEX_CLAUDE_CLI" ] || LEX_CLAUDE_CLI="$HOME/.claude/lex-claude/bin/lex-claude"
 if [ -x "$LEX_CLAUDE_CLI" ]; then
-  printf '\n===== lex-claude commands (lc) =====\n'
-  "$LEX_CLAUDE_CLI" init claude
+  ref=$("$LEX_CLAUDE_CLI" init claude)
+  if [ $((used + ${#ref} + 40)) -le "$BUDGET" ]; then
+    printf '\n===== lex-claude commands (lc) =====\n%s\n' "$ref"
+    used=$((used + ${#ref} + 40))
+  else
+    printf '\n===== lex-claude commands (lc) =====\nRun `lc init claude` for the lc command reference before using an lc command.\n'
+  fi
 fi
 
 LEX_CLAUDE_LANG_FILE="$HOME/.claude/lex-claude/.lang"
@@ -52,6 +72,12 @@ if [ -f "$LEX_CLAUDE_LANG_FILE" ]; then
     en) printf '\n===== language =====\nRespond in English.\n' ;;
     fr) printf '\n===== language =====\nRespond in French.\n' ;;
   esac
+fi
+
+if [ -n "$skipped" ]; then
+  printf '\n===== docs not loaded (budget) =====\n'
+  for f in $skipped; do printf -- '- %s/%s\n' "${CLAUDE_PROJECT_DIR:-$PWD}" "$f"; done
+  printf 'Read each one in full before work that touches its area. A file the project CLAUDE.md names as first read is read now.\n'
 fi
 
 # The ack is an état readout the user can falsify at a glance, not ceremony.
