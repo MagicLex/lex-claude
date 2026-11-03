@@ -94,7 +94,9 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
   tdir="$dst/projects/$(slug "$cwd")"; mkdir -p "$tdir"
   [ -e "$tdir/$jsonl" ] || ln -s "$pdir/$jsonl" "$tdir/$jsonl"
   [ ! -d "$pdir/$sid" ] || [ -e "$tdir/$sid" ] || ln -s "$pdir/$sid" "$tdir/$sid"
-  accept=0; trusted "$src" "$cwd" && ! trusted "$dst" "$cwd" && accept=1
+  # Not gated on the target's own trust: Claude Code 2.1.316 still prompted for
+  # a folder whose parent the target had accepted.
+  accept=0; trusted "$src" "$cwd" && accept=1
 
   kill -TERM "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
