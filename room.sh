@@ -115,11 +115,11 @@ repo_lanes() {
 }
 
 cmd_say() {
-  local to=() wait_min=5 id=""
+  local to=() wait_min=5 id="" waited=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --to) to+=("${2:?--to needs a name}"); shift 2 ;;
-      --wait) wait_min="${2:-}"; shift 2; case "$wait_min" in ''|*[!0-9]*) die "--wait needs minutes" ;; esac ;;
+      --wait) wait_min="${2:-}"; waited=1; shift 2; case "$wait_min" in ''|*[!0-9]*) die "--wait needs minutes" ;; esac ;;
       --in) id="${2:?--in needs a room ID}"; shift 2 ;;
       --) shift; break ;;
       -*) die "unknown flag $1" ;;
@@ -170,6 +170,11 @@ cmd_say() {
   echo "sent to${sent_to:- nobody}. $failed failed. id $id"
   echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
+  # In a terminal, without an explicit --wait or a failure to read above, the
+  # room opens in the full-screen view.
+  if [ -t 0 ] && [ -t 1 ] && [ "$waited" = 0 ] && [ "$failed" = 0 ]; then
+    exec python3 "$(dirname "$0")/roomtui.py" "$ROOM_DIR" "$id"
+  fi
 
   # Bounded wait: print each reply as it lands, stop when every reached lane
   # answered since this message. A busy lane answers only after its current turn.
@@ -221,7 +226,9 @@ jump() {
     && cmux focus-pane --pane "$3" --workspace "$2" --window "$1" >/dev/null && echo "jumped to $name"
 }
 
-is_id() { [[ $1 =~ ^[0-9]{8}-[0-9]{6}-[0-9]+$ ]]; }
+# Anything that starts like a room ID counts as one, so a mistyped ID or a
+# file name (ID.log) fails as "no room" instead of going out as a message.
+is_id() { [[ $1 =~ ^[0-9]{8}-[0-9]{6}- ]]; }
 
 # lc room: no argument (or "") opens the full-screen view (roomtui.py), one room ID
 # opens that room, anything else sends a message. Without a terminal the view

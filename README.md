@@ -138,9 +138,11 @@ half-typed prompt, and an idle session wakes up to read it. The header
 its own chat. `--to NAME` (repeatable) limits it to named sessions.
 
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
-are appended to `~/.claude/lex-claude/state/room/ID.log`, and the sender
-prints them until every reached session answered or `--wait MIN` minutes
-(default 5, 0 for no wait) pass. One room is one thread.
+are appended to `~/.claude/lex-claude/state/room/ID.log`. In a terminal the
+room then opens in the full-screen view below. Without one, with `--wait
+MIN`, or when a delivery failed, the sender prints the replies until every
+reached session answered or MIN minutes (default 5, 0 for no wait) pass. One
+room is one thread.
 
 `lc room --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
 sessions the first message reached (or the named ones), found by name
