@@ -197,7 +197,7 @@ def main(scr, d: Path, start: str | None):
             buf = ""
         elif k == "\x07":
             name = targets[target]
-            status = "pick one lane with tab first" if name == "all" else run("go", name)[0]
+            status = "pick one lane with tab first" if name == "all" else run("go", name, *([] if cur == NEW else [cur]))[0]
         elif k in ("\n", "\r", curses.KEY_ENTER):
             if buf.strip() and (cur != NEW or here):
                 scr.addstr(body + 1, 0, "sending...".ljust(w - 1)[: w - 1], curses.A_BOLD)

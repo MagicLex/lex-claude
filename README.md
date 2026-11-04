@@ -145,8 +145,12 @@ room is one thread.
 
 `lc room --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
 sessions the first message reached (or the named ones), wherever they run
-now. A Claude session renamed by `lc move` is found by its session ID and the
-room takes its new name. A session that is gone is listed as `not live`. Its
+now. A Claude session is found by the session ID the room recorded, or by
+its successor's after an lc-succession handoff (`state/lineage/<id>` holds
+`gen<TAB>predecessor-id`), under whatever name it has now; the room takes that
+name. A recorded session no live session holds is listed as `not live`, never
+matched by its old name, which `lc move` may have given to another session.
+The same lookup backs `ctrl-g` in the full-screen view. Its
 replies land in the same room. A message that is
 itself a room ID needs `--` before it.
 

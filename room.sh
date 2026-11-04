@@ -6,7 +6,7 @@
 #   room.sh room [--to NAME]... [--wait MIN] [--in ID] [--] MESSAGE
 #   room.sh reply ID TEXT
 #   room.sh lanes                    live sessions of this repo, one name per line
-#   room.sh go NAME
+#   room.sh go NAME [ROOM]
 #
 # A broadcast pastes MESSAGE, under a header naming it a room message, into the
 # cmux surface of every live session whose cwd is in this repo or one of its
@@ -25,6 +25,7 @@
 set -euo pipefail
 
 ROOM_DIR="${LEX_CLAUDE_ROOM_DIR:-$HOME/.claude/lex-claude/state/room}"
+LINEAGE_DIR="${LEX_CLAUDE_LINEAGE_DIR:-$HOME/.claude/lex-claude/state/lineage}"
 
 die() { echo "room: $*" >&2; exit 1; }
 
@@ -97,6 +98,21 @@ live() {
   done <<< "$codex"
 }
 
+# "name<TAB>session ID" of the live lane in LANES (live format) that holds
+# session SID: the session itself, or a successor that took it over through
+# lc-succession (lineage/<id> = "gen<TAB>predecessor-id").
+holder() {
+  local name pid cwd surface sid p n
+  while IFS=$'\t' read -r name pid cwd surface sid; do
+    p=$sid n=0
+    while [ -n "$p" ] && [ "$n" -lt 50 ]; do
+      [ "$p" = "$1" ] && { printf '%s\t%s\n' "$name" "$sid"; return 0; }
+      p=$(cut -f2 "$LINEAGE_DIR/$p" 2>/dev/null || true); n=$((n+1))
+    done
+  done <<< "$2"
+  return 0
+}
+
 # live, minus the session this command runs under.
 others() {
   local self=" " p=$$ lanes
@@ -161,22 +177,31 @@ cmd_say() {
     : > "$ROOM_DIR/$id.log"
   fi
 
-  local sent=0 failed=0 sent_names="" failed_names="" sids="" pid cwd surface sid err lanes new=1 want="" t now
+  local sent=0 failed=0 sent_names="" failed_names="" sids="" pid cwd surface sid err lanes new=1 want="" t now gone_sids=""
   [ -n "$root" ] || new=0
   if [ "$new" = 1 ]; then lanes=$(repo_lanes) || { rm -f "$ROOM_DIR/$id.log"; exit 1; }; else lanes=$(others) || exit 1; fi
   [ ${#to[@]} -eq 0 ] || want=$(printf '%s\n' "${to[@]}")
-  # lc move renames a lane but keeps its session ID: a name the room recorded
-  # goes to the live lane with that ID, whatever it is called now.
+  # A lane the room recorded with a session ID is found by that ID, or by its
+  # successor's, under whatever name it has now. Never by the bare name: lc move
+  # renames lanes and can hand an old name to another lane. A recorded lane with
+  # no live holder keeps its old name and is reported as not live.
   if [ "$new" = 0 ] && [ -n "$want" ] && [ -f "$ROOM_DIR/$id.sid" ]; then
     want=$(printf '%s\n' "$want" | while IFS= read -r t; do
       sid=$(awk -F'\t' -v n="$t" '$1==n {print $2; exit}' "$ROOM_DIR/$id.sid")
-      now=""; [ -z "$sid" ] || now=$(printf '%s\n' "$lanes" | awk -F'\t' -v s="$sid" '$5==s {print $1; exit}')
+      if [ -z "$sid" ]; then printf '%s\n' "$t"; continue; fi
+      now=$(holder "$sid" "$lanes" | cut -f1)
       printf '%s\n' "${now:-$t}"
+    done)
+    # The old name of a gone lane must not match a live lane that took it.
+    gone_sids=$(printf '%s\n' "$want" | while IFS= read -r t; do
+      sid=$(awk -F'\t' -v n="$t" '$1==n {print $2; exit}' "$ROOM_DIR/$id.sid")
+      [ -z "$sid" ] || [ -n "$(holder "$sid" "$lanes")" ] || printf '%s\n' "$t"
     done)
   fi
   while IFS=$'\t' read -r name pid cwd surface sid; do
     [ -n "$pid" ] || continue
     [ -z "$want" ] || printf '%s\n' "$want" | grep -qxF -- "$name" || continue
+    [ -z "$gone_sids" ] || ! printf '%s\n' "$gone_sids" | grep -qxF -- "$name" || continue
     [ -n "$surface" ] || { echo "skip $name: no cmux surface"; failed_names+="$name"$'\n'; continue; }
     if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
       sent_names+="$name"$'\n'; sids+="$name"$'\t'"$sid"$'\n'; sent=$((sent+1))
@@ -195,10 +220,11 @@ cmd_say() {
     printf '%s' "$sent_names" > "$ROOM_DIR/$id.to"
     printf '%s' "$sids" > "$ROOM_DIR/$id.sid"
   elif [ -f "$ROOM_DIR/$id.sid" ]; then
-    # Write renamed lanes back, so the room shows the names in use now.
+    # Write renamed lanes and successors back, so the room shows who holds
+    # each lane now.
     local renamed; renamed=$(while IFS=$'\t' read -r t sid; do
-      now=""; [ -z "$sid" ] || now=$(printf '%s\n' "$lanes" | awk -F'\t' -v s="$sid" '$5==s {print $1; exit}')
-      printf '%s\t%s\n' "${now:-$t}" "$sid"
+      now=""; [ -z "$sid" ] || now=$(holder "$sid" "$lanes")
+      if [ -n "$now" ]; then printf '%s\n' "$now"; else printf '%s\t%s\n' "$t" "$sid"; fi
     done < "$ROOM_DIR/$id.sid")
     printf '%s\n' "$renamed" > "$ROOM_DIR/$id.sid"
     printf '%s\n' "$renamed" | cut -f1 > "$ROOM_DIR/$id.to"
@@ -257,15 +283,24 @@ rooms() {
   done
 }
 
-# Bring the cmux tab of lane NAME to the front.
+# Bring the cmux tab of lane NAME to the front. With a ROOM that recorded the
+# lane's session ID, the lane is found by that ID or its successor, not by name.
 jump() {
-  local name=$1 surface loc lanes
+  local name=$1 room=${2:-} surface loc lanes sid="" held
   lanes=$(live) || return
-  surface=$(printf '%s\n' "$lanes" | awk -F'\t' -v n="$1" '$1==n {print $4; exit}')
-  [ -n "$surface" ] || { echo "no live lane named $1 in cmux"; return; }
+  [ -z "$room" ] || [ ! -f "$ROOM_DIR/$room.sid" ] || sid=$(awk -F'\t' -v n="$name" '$1==n {print $2; exit}' "$ROOM_DIR/$room.sid")
+  if [ -n "$sid" ]; then
+    held=$(holder "$sid" "$lanes")
+    [ -n "$held" ] || { echo "$name is not live (no session or successor holds it)"; return; }
+    name=$(printf '%s' "$held" | cut -f1)
+    surface=$(printf '%s\n' "$lanes" | awk -F'\t' -v s="$(printf '%s' "$held" | cut -f2)" '$5==s {print $4; exit}')
+  else
+    surface=$(printf '%s\n' "$lanes" | awk -F'\t' -v n="$name" '$1==n {print $4; exit}')
+  fi
+  [ -n "$surface" ] || { echo "no live lane named $name in cmux"; return; }
   loc=$(cmux --json tree --all | jq -r --arg s "$surface" '.windows[] | .ref as $win | .workspaces[]
     | .ref as $ws | .panes[] | .ref as $p | select(any(.. | objects; .ref? == $s)) | "\($win) \($ws) \($p)"' | head -n1)
-  [ -n "$loc" ] || { echo "surface $surface of $1 not in the cmux tree"; return; }
+  [ -n "$loc" ] || { echo "surface $surface of $name not in the cmux tree"; return; }
   set -- $loc
   cmux focus-window --window "$1" >/dev/null && cmux select-workspace --workspace "$2" --window "$1" >/dev/null \
     && cmux focus-pane --pane "$3" --workspace "$2" --window "$1" >/dev/null && echo "jumped to $name"
@@ -299,6 +334,6 @@ case "${1:-}" in
   reply) shift; cmd_reply "$@" ;;
   room) shift; cmd_room "$@" ;;
   lanes) others_names=$(repo_lanes) || exit 1; printf '%s\n' "$others_names" | cut -f1 | sed '/^$/d' ;;
-  go) shift; jump "${1:?usage: room.sh go NAME}" ;;
+  go) shift; jump "${1:?usage: room.sh go NAME [ROOM]}" "${2:-}" ;;
   *) die "usage: room.sh room|reply|lanes|go ..." ;;
 esac
