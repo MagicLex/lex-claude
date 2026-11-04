@@ -95,7 +95,7 @@ Usage:
   lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
   lex-claude say [--to NAME]... [--wait MIN] [--in ID] MESSAGE  Paste a room broadcast into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
-  lex-claude room [ID]                                          Pick a room (or open ID): live thread, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
+  lex-claude room [ID]                                          Full-screen room view: live threads, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
   lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
@@ -1287,7 +1287,7 @@ Available subcommands (run with `lc <cmd>`):
 - `move --to main|alt|alt2|... [--dry-run] [ID...]`  resume live sessions on another account (usage limit hit)
 - `say [--to NAME]... [--wait MIN] [--in ID] MESSAGE`  broadcast from Lex to every live session of this repo (--in: follow-up in room ID); a `[room ID]` prompt comes from him, not the chat
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
-- `room [ID]`                                 Lex's room thread view (interactive); without a terminal, list rooms or print ID
+- `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
 - `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference

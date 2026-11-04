@@ -4,6 +4,7 @@
 #   room.sh say [--to NAME]... [--wait MIN] [--in ID] MESSAGE
 #   room.sh reply ID TEXT
 #   room.sh room [ID]
+#   room.sh go NAME
 #
 # say pastes MESSAGE, under a header naming it a room broadcast, into the cmux
 # surface of every live session whose cwd is in this repo or one of its
@@ -190,7 +191,7 @@ rooms() {
 
 # Bring the cmux tab of lane NAME to the front.
 jump() {
-  local surface loc lanes
+  local name=$1 surface loc lanes
   lanes=$(live) || return
   surface=$(printf '%s\n' "$lanes" | awk -F'\t' -v n="$1" '$1==n {print $4; exit}')
   [ -n "$surface" ] || { echo "no live lane named $1 in cmux"; return; }
@@ -199,68 +200,28 @@ jump() {
   [ -n "$loc" ] || { echo "surface $surface of $1 not in the cmux tree"; return; }
   set -- $loc
   cmux focus-window --window "$1" >/dev/null && cmux select-workspace --workspace "$2" --window "$1" >/dev/null \
-    && cmux focus-pane --pane "$3" --workspace "$2" --window "$1" >/dev/null
+    && cmux focus-pane --pane "$3" --workspace "$2" --window "$1" >/dev/null && echo "jumped to $name"
 }
 
-# Interactive thread: new lines print as they land, a typed line goes back out.
-talk() {
-  local id=$1 log="$ROOM_DIR/$1.log" seen=0 buf="" line rc n first rest
-  local names; names=$(paste -sd ' ' "$ROOM_DIR/$id.to" 2>/dev/null || true)
-  echo "room $id. lanes: ${names:-none recorded}"
-  echo "NAME text: to one lane. all text: to every lane. go NAME: jump to its tab. q: quit."
-  echo
-  while :; do
-    n=$(thread "$id" | wc -l | tr -d ' ')
-    if [ "$n" -gt "$seen" ]; then
-      printf '\r\033[K'; thread "$id" | tail -n +"$((seen+1))" | show; seen=$n
-    fi
-    rc=0; IFS= read -r -e -t 3 -i "$buf" -p "room> " line || rc=$?
-    if [ "$rc" -gt 128 ]; then buf=$line; printf '\r\033[K'; continue; fi
-    [ "$rc" -eq 0 ] || { echo; break; }
-    buf=""
-    first=${line%% *}; rest=${line#"$first"}; rest=${rest# }
-    case "$first" in
-      "") ;;
-      q|quit|exit) break ;;
-      go) jump "$rest" ;;
-      all) [ -n "$rest" ] && cmd_say --in "$id" --wait 0 "$rest" ;;
-      *)
-        if [ -n "$rest" ] && case " $names " in *" $first "*) true ;; *) false ;; esac; then
-          cmd_say --in "$id" --to "$first" --wait 0 "$rest"
-        else
-          echo "start with a lane name (${names:-none}), all, go or q"
-        fi ;;
-    esac
-  done
-}
-
-# lc room: pick a room, then talk in it. lc room ID: that room. Without a
-# terminal it prints instead: the room list, or the thread of ID.
+# lc room [ID]: the full-screen room view (roomtui.py). Without a terminal it
+# prints instead: the room list, or the thread of ID.
 cmd_room() {
-  local id="${1:-}" list n
+  local id="${1:-}"
   if [ -t 0 ] && [ -t 1 ]; then
-    [ "${BASH_VERSINFO[0]}" -ge 4 ] || die "the interactive room needs bash 4 or newer"
+    [ -z "$id" ] || [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
+    mkdir -p "$ROOM_DIR"
+    exec python3 "$(dirname "$0")/roomtui.py" "$ROOM_DIR" ${id:+"$id"}
   elif [ -n "$id" ]; then
-    [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"; thread "$id" | show; return
+    [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"; thread "$id" | show
   else
-    rooms; return
+    rooms
   fi
-  if [ -z "$id" ]; then
-    list=$(rooms)
-    [ -n "$list" ] || die "no rooms yet: lc say MESSAGE starts one"
-    printf '%s\n' "$list" | awk -F'\t' '{printf "%2d  %s  %s replies  %s\n", NR, $1, $2, $3}'
-    read -r -e -p "room [1]: " n || return 0
-    case "${n:-1}" in *[!0-9]*) die "not a number: $n" ;; esac
-    id=$(printf '%s\n' "$list" | sed -n "${n:-1}p" | cut -f1)
-    [ -n "$id" ] || die "no room $n"
-  fi
-  [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
-  talk "$id"
 }
 
 case "${1:-}" in
   say) shift; cmd_say "$@" ;;
   reply) shift; cmd_reply "$@" ;;
   room) shift; cmd_room "$@" ;;
-  *) die "usage: room.sh say|reply|room ..." ;;
+  go) shift; jump "${1:?usage: room.sh go NAME}" ;;
+  *) die "usage: room.sh say|reply|room|go ..." ;;
 esac

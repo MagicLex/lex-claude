@@ -145,15 +145,18 @@ no wait) pass.
 sessions the first broadcast reached (or the named ones), found by name
 wherever they run now. Its replies land in the same room.
 
-`lc room` lists recent rooms and opens one; `lc room ID` opens room ID. The
-thread shows what Lex sent and the replies in time order, and prints new
-replies as they land. At the `room>` prompt:
+`lc room` opens a full-screen view (`roomtui.py`, Python curses): rooms on
+the left, newest first, the selected thread on the right in time order, live.
+`lc room ID` opens on room ID. The status line names the sessions that have
+not answered the last message.
 
 ```
-NAME text    follow-up to one session
-all text     follow-up to every session the room reached
-go NAME      bring that session's cmux tab to the front
-q            quit
+up/down      pick a room
+tab          cycle the target: all, then each session the room reached
+enter        send the typed line to the target (lc say --in)
+ctrl-g       bring the target session's cmux tab to the front
+pgup/pgdn    scroll the thread
+esc          quit
 ```
 
 Without a terminal, `lc room` prints the room list (`ID<TAB>replies<TAB>first
@@ -412,6 +415,7 @@ lex-claude/
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
 ├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts, follow-ups, room threads
+├── roomtui.py                   ← `lc room` full-screen view
 ├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
