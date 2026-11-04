@@ -48,7 +48,7 @@ class Room:
         self.lex = entries(d / f"{rid}.lex")
         self.replies = entries(d / f"{rid}.log")
         to = d / f"{rid}.to"
-        self.to = to.read_text().split() if to.exists() else []
+        self.to = [l for l in to.read_text().splitlines() if l.strip()] if to.exists() else []
         # Sorted on time only and stable: at the same second Lex comes first.
         self.thread = sorted(self.lex + self.replies, key=lambda e: e[0])
 
@@ -56,7 +56,10 @@ class Room:
         if not self.lex:
             return []
         t, name, _ = self.lex[-1]
-        asked = name.split(">", 1)[-1].split()
+        # "SENDER > a, b"; rooms before names could hold spaces wrote "SENDER > a b".
+        names = name.split(">", 1)[-1].strip()
+        parts = names.split(", ")
+        asked = parts if all(p in self.to for p in parts) else names.split()
         return [n for n in asked if not any(r[1] == n and r[0] >= t for r in self.replies)]
 
     def label(self) -> str:

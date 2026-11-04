@@ -19,8 +19,9 @@
 #
 # Files per room in ROOM_DIR, lines "time<TAB>name<TAB>text":
 #   ID.log  lane replies only
-#   ID.lex  what was sent, name "SENDER > lane lane..." (SENDER is Lex, or the lane that sent)
-#   ID.to   names the first broadcast reached, one per line
+#   ID.lex  what was sent, name "SENDER > lane, lane" (SENDER is Lex, or the lane that sent)
+#   ID.to   names of the lanes the room reached, one per line
+#   ID.sid  "name<TAB>session ID" of those lanes, to find them after lc move renames them
 set -euo pipefail
 
 ROOM_DIR="${LEX_CLAUDE_ROOM_DIR:-$HOME/.claude/lex-claude/state/room}"
@@ -67,8 +68,9 @@ my_session() {
   echo "${t:-a terminal}"
 }
 
-# "name<TAB>pid<TAB>cwd<TAB>surface" for every live interactive Claude session
-# and every Codex process in cmux. Surface is empty outside cmux.
+# "name<TAB>pid<TAB>cwd<TAB>surface<TAB>session ID" for every live interactive
+# Claude session and every Codex process in cmux. Surface is empty outside
+# cmux, the session ID for Codex.
 live() {
   command -v cmux >/dev/null || die "cmux missing"
   local procs surfaces codex titles top f pid cwd name kind surface
@@ -83,15 +85,15 @@ live() {
   titles=$(cmux --json tree --all | jq -r '.windows[].workspaces[] | .title as $t
     | .. | objects | select((.ref? // "") | startswith("surface:")) | "\(.ref)\t\($t)"')
   for f in $(session_files); do
-    IFS=$'\t' read -r pid cwd name kind < <(jq -r '[.pid // "", .cwd // "", .name // "?", .kind // ""] | @tsv' "$f")
+    IFS=$'\t' read -r pid cwd name kind sid < <(jq -r '[.pid // "", .cwd // "", .name // "?", .kind // "", .sessionId // ""] | @tsv' "$f")
     [ -n "$pid" ] && [ "$kind" = interactive ] && kill -0 "$pid" 2>/dev/null || continue
-    printf '%s\t%s\t%s\t%s\n' "$name" "$pid" "$cwd" "$(printf '%s\n' "$surfaces" | awk -v p="$pid" '$1==p {print $2; exit}')"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$pid" "$cwd" "$(printf '%s\n' "$surfaces" | awk -v p="$pid" '$1==p {print $2; exit}')" "$sid"
   done
   while read -r pid surface; do
     [ -n "$pid" ] || continue
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     name=$(printf '%s\n' "$titles" | awk -F'\t' -v s="$surface" '$1==s {print $2; exit}')
-    printf '%s\t%s\t%s\t%s\n' "${name:-codex-$pid}" "$pid" "$cwd" "$surface"
+    printf '%s\t%s\t%s\t%s\t\n' "${name:-codex-$pid}" "$pid" "$cwd" "$surface"
   done <<< "$codex"
 }
 
@@ -159,33 +161,56 @@ cmd_say() {
     : > "$ROOM_DIR/$id.log"
   fi
 
-  local sent=0 failed=0 sent_to="" failed_to="" pid cwd surface err lanes new=1
+  local sent=0 failed=0 sent_names="" failed_names="" sids="" pid cwd surface sid err lanes new=1 want="" t now
   [ -n "$root" ] || new=0
   if [ "$new" = 1 ]; then lanes=$(repo_lanes) || { rm -f "$ROOM_DIR/$id.log"; exit 1; }; else lanes=$(others) || exit 1; fi
-  while IFS=$'\t' read -r name pid cwd surface; do
+  [ ${#to[@]} -eq 0 ] || want=$(printf '%s\n' "${to[@]}")
+  # lc move renames a lane but keeps its session ID: a name the room recorded
+  # goes to the live lane with that ID, whatever it is called now.
+  if [ "$new" = 0 ] && [ -n "$want" ] && [ -f "$ROOM_DIR/$id.sid" ]; then
+    want=$(printf '%s\n' "$want" | while IFS= read -r t; do
+      sid=$(awk -F'\t' -v n="$t" '$1==n {print $2; exit}' "$ROOM_DIR/$id.sid")
+      now=""; [ -z "$sid" ] || now=$(printf '%s\n' "$lanes" | awk -F'\t' -v s="$sid" '$5==s {print $1; exit}')
+      printf '%s\n' "${now:-$t}"
+    done)
+  fi
+  while IFS=$'\t' read -r name pid cwd surface sid; do
     [ -n "$pid" ] || continue
-    if [ ${#to[@]} -gt 0 ]; then
-      case " ${to[*]} " in *" $name "*) ;; *) continue ;; esac
-    fi
-    [ -n "$surface" ] || { echo "skip $name: no cmux surface"; failed_to="$failed_to $name"; continue; }
+    [ -z "$want" ] || printf '%s\n' "$want" | grep -qxF -- "$name" || continue
+    [ -n "$surface" ] || { echo "skip $name: no cmux surface"; failed_names+="$name"$'\n'; continue; }
     if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
-      sent_to="$sent_to $name"; sent=$((sent+1))
+      sent_names+="$name"$'\n'; sids+="$name"$'\t'"$sid"$'\n'; sent=$((sent+1))
     else
-      echo "FAIL $name ($surface): $err"; failed=$((failed+1)); failed_to="$failed_to $name"
+      echo "FAIL $name ($surface): $err"; failed=$((failed+1)); failed_names+="$name"$'\n'
     fi
   done <<< "$lanes"
 
   # A new room nobody got is not kept. Its log exists before delivery so an
   # early reply has a place to land.
   if [ "$new" = 1 ] && [ "$sent" -eq 0 ]; then rm -f "$ROOM_DIR/$id.log"; echo "sent to nobody. $failed failed."; return 0; fi
-  [ "$new" = 1 ] && printf '%s\n' $sent_to > "$ROOM_DIR/$id.to"
-  [ "$sent" -gt 0 ] && printf '%s\t%s >%s\t%s\n' "$(date +%H:%M:%S)" "$from" "$sent_to" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
+  # Names can hold spaces (a Codex lane is named by its workspace title), so
+  # lists are one name per line in files and ", "-joined on screen.
+  local joined; joined=$(printf '%s' "$sent_names" | awk 'NF {printf "%s%s", (n++ ? ", " : ""), $0}')
+  if [ "$new" = 1 ]; then
+    printf '%s' "$sent_names" > "$ROOM_DIR/$id.to"
+    printf '%s' "$sids" > "$ROOM_DIR/$id.sid"
+  elif [ -f "$ROOM_DIR/$id.sid" ]; then
+    # Write renamed lanes back, so the room shows the names in use now.
+    local renamed; renamed=$(while IFS=$'\t' read -r t sid; do
+      now=""; [ -z "$sid" ] || now=$(printf '%s\n' "$lanes" | awk -F'\t' -v s="$sid" '$5==s {print $1; exit}')
+      printf '%s\t%s\n' "${now:-$t}" "$sid"
+    done < "$ROOM_DIR/$id.sid")
+    printf '%s\n' "$renamed" > "$ROOM_DIR/$id.sid"
+    printf '%s\n' "$renamed" | cut -f1 > "$ROOM_DIR/$id.to"
+  fi
+  [ "$sent" -gt 0 ] && printf '%s\t%s > %s\t%s\n' "$(date +%H:%M:%S)" "$from" "$joined" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
   # A named lane that is no longer live (closed, or retired by a successor) is
   # said, not dropped silently.
-  local gone="" t
-  for t in ${to[@]+"${to[@]}"}; do case " $sent_to $failed_to " in *" $t "*) ;; *) gone="$gone, $t" ;; esac; done
-  [ -z "$gone" ] || echo "not live:${gone#,}"
-  echo "sent to${sent_to:- nobody}. $failed failed. id $id"
+  local gone; gone=$(printf '%s\n' "$want" | while IFS= read -r t; do
+    if [ -n "$t" ] && ! printf '%s%s' "$sent_names" "$failed_names" | grep -qxF -- "$t"; then printf '%s\n' "$t"; fi
+  done | awk 'NF {printf "%s%s", (n++ ? ", " : ""), $0}')
+  [ -z "$gone" ] || echo "not live: $gone"
+  echo "sent to ${joined:-nobody}. $failed failed. id $id"
   echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
   # In a terminal, without an explicit --wait or a failure to read above, the
@@ -201,15 +226,17 @@ cmd_say() {
   local start=$seen
   echo "waiting up to $wait_min min. Ctrl-C stops the wait only; later replies: lc room $id"
   echo
-  answered() { tail -n +"$((start+1))" "$ROOM_DIR/$id.log" | cut -f2 | sort -u | grep -cxF -f <(printf '%s\n' $sent_to) || true; }
+  answered() { tail -n +"$((start+1))" "$ROOM_DIR/$id.log" | cut -f2 | sort -u | grep -cxF -f <(printf '%s' "$sent_names") || true; }
   while [ "$(date +%s)" -lt "$deadline" ]; do
     n=$(wc -l < "$ROOM_DIR/$id.log" | tr -d ' ')
     [ "$n" -gt "$seen" ] && { tail -n +"$((seen+1))" "$ROOM_DIR/$id.log" | head -n "$((n-seen))" | show; seen=$n; }
     [ "$(answered)" -ge "$sent" ] && return 0
     sleep 3
   done
-  missing=$(for n in $sent_to; do tail -n +"$((start+1))" "$ROOM_DIR/$id.log" | cut -f2 | grep -qxF "$n" || printf ' %s' "$n"; done)
-  echo "no answer within $wait_min min from$missing. Later replies: lc room $id"
+  missing=$(printf '%s' "$sent_names" | while IFS= read -r n; do
+    tail -n +"$((start+1))" "$ROOM_DIR/$id.log" | cut -f2 | grep -qxF -- "$n" || printf '%s\n' "$n"
+  done | awk 'NF {printf "%s%s", (n++ ? ", " : ""), $0}')
+  echo "no answer within $wait_min min from $missing. Later replies: lc room $id"
 }
 
 cmd_reply() {

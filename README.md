@@ -144,8 +144,10 @@ reached session answered or MIN minutes (default 5, 0 for no wait) pass. One
 room is one thread.
 
 `lc room --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
-sessions the first message reached (or the named ones), found by name
-wherever they run now. Its replies land in the same room. A message that is
+sessions the first message reached (or the named ones), wherever they run
+now. A Claude session renamed by `lc move` is found by its session ID and the
+room takes its new name. A session that is gone is listed as `not live`. Its
+replies land in the same room. A message that is
 itself a room ID needs `--` before it.
 
 `lc room` (or `lc room ""`) opens a full-screen view (`roomtui.py`, Python curses): rooms on
@@ -165,10 +167,18 @@ esc          quit
 ```
 
 Without a terminal, `lc room` prints the room list (`ID<TAB>replies<TAB>first
-message`) and `lc room ID` prints the thread. Room files, one line per entry
-as `time<TAB>name<TAB>text`, live in `~/.claude/lex-claude/state/room/`:
-`ID.log` holds the replies, `ID.lex` what Lex sent (name `Lex > NAME...`),
-`ID.to` the names the first broadcast reached.
+message`) and `lc room ID` prints the thread. Room files live in
+`~/.claude/lex-claude/state/room/`:
+
+```
+ID.log   replies, time<TAB>name<TAB>text
+ID.lex   what was sent, time<TAB>SENDER > NAME, NAME<TAB>text (SENDER: Lex or the lane that sent)
+ID.to    names of the sessions the room reached, one per line
+ID.sid   name<TAB>Claude session ID, one per line
+```
+
+Names can hold spaces (a Codex session is named by its workspace title), so
+lists on one line are joined with `, `.
 
 ### Lane
 
