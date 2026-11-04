@@ -139,7 +139,28 @@ refuses the paste and is reported as `FAIL`.
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
 are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
 until every reached session answered or `--wait MIN` minutes (default 5, 0 for
-no wait) pass. `lc room ID` prints them later.
+no wait) pass.
+
+`lc say --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
+sessions the first broadcast reached (or the named ones), found by name
+wherever they run now. Its replies land in the same room.
+
+`lc room` lists recent rooms and opens one; `lc room ID` opens room ID. The
+thread shows what Lex sent and the replies in time order, and prints new
+replies as they land. At the `room>` prompt:
+
+```
+NAME text    follow-up to one session
+all text     follow-up to every session the room reached
+go NAME      bring that session's cmux tab to the front
+q            quit
+```
+
+Without a terminal, `lc room` prints the room list (`ID<TAB>replies<TAB>first
+message`) and `lc room ID` prints the thread. Room files, one line per entry
+as `time<TAB>name<TAB>text`, live in `~/.claude/lex-claude/state/room/`:
+`ID.log` holds the replies, `ID.lex` what Lex sent (name `Lex > NAME...`),
+`ID.to` the names the first broadcast reached.
 
 ### Lane
 
@@ -172,8 +193,9 @@ lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
 lc say [--to NAME]... [--wait MIN] MESSAGE         # broadcast to every live session of this repo
+lc say --in ID [--to NAME]... MESSAGE              # follow-up in room ID
 lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
-lc room ID                                         # print the replies to a broadcast
+lc room [ID]                                       # open a room thread: answer a session, jump to its tab
 lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
@@ -389,7 +411,7 @@ lex-claude/
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
-├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts to live sessions
+├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts, follow-ups, room threads
 ├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
