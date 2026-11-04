@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import threading
 from pathlib import Path
 
 ROOM_SH = Path(__file__).resolve().parent / "room.sh"
@@ -69,10 +70,25 @@ def room_ids(d: Path) -> list[str]:
     return sorted((p.stem for p in d.glob("*.log")), key=touched, reverse=True)[:50]
 
 
-def run(*args: str) -> list[str]:
-    p = subprocess.run(["bash", str(ROOM_SH), *args], capture_output=True, text=True)
+def run(*args: str, timeout: int = 60) -> list[str]:
+    try:
+        p = subprocess.run(["bash", str(ROOM_SH), *args], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return [f"room.sh {args[0]} gave no answer in {timeout}s (cmux busy?)"]
     lines = [l for l in (p.stdout + p.stderr).splitlines() if l.strip()]
     return lines or ["done" if p.returncode == 0 else f"failed ({p.returncode})"]
+
+
+def fetch_lanes(box: dict) -> None:
+    """Fill box["lanes"] off the UI thread: the lookup asks cmux, which can stall."""
+    try:
+        p = subprocess.run(["bash", str(ROOM_SH), "lanes"], capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        box["err"], box["lanes"] = "lane lookup gave no answer in 20s (cmux busy?)", []
+        return
+    if p.returncode != 0:
+        box["err"] = (p.stderr.strip().splitlines() or [f"lane lookup failed ({p.returncode})"])[-1]
+    box["lanes"] = [l for l in p.stdout.splitlines() if l.strip()] if p.returncode == 0 else []
 
 
 def repo() -> str:
@@ -94,7 +110,7 @@ def main(scr, d: Path, start: str | None):
     SEL = curses.A_REVERSE
     scr.timeout(700)
     here = repo()
-    lanes: list[str] | None = None  # live lanes of `here`, read when the new row is picked
+    lanes: dict | None = None  # live lanes of `here`, looked up when the new row is picked
     ids = room_ids(d)
     cur = start if start in ids else NEW
     target, buf, scroll, status = 0, "", 0, ""
@@ -111,14 +127,16 @@ def main(scr, d: Path, start: str | None):
         tw = w - lw - 1
         lines: list[tuple[str, int]] = []
         if cur == NEW:
-            if lanes is None:
-                p = subprocess.run(["bash", str(ROOM_SH), "lanes"], capture_output=True, text=True) if here else None
-                lanes = p.stdout.split() if p and p.returncode == 0 else []
-            targets = ["all"] + lanes
+            if lanes is None and here:
+                lanes = {}
+                threading.Thread(target=fetch_lanes, args=(lanes,), daemon=True).start()
+            found = (lanes or {}).get("lanes")
+            targets = ["all"] + (found or [])
             if not here:
                 lines = [("not in a git repo: run lc room inside one to start a room", 0)]
             else:
-                lines = [(f"new room in {here}", LEX), (f"lanes: {' '.join(lanes) or 'none live'}", 0)]
+                shown = "looking..." if found is None else (", ".join(found) or (lanes or {}).get("err") or "none live")
+                lines = [(f"new room in {here}", LEX), (f"lanes: {shown}", 0)]
             info = f"new room in {here}" if here else "no repo"
         else:
             room = Room(d, cur)
@@ -160,7 +178,7 @@ def main(scr, d: Path, start: str | None):
         if k in (curses.KEY_UP, curses.KEY_DOWN):
             cur = rows[max(0, sel - 1)] if k == curses.KEY_UP else rows[min(len(rows) - 1, sel + 1)]
             target, scroll = 0, 0
-            if cur == NEW:
+            if cur == NEW and lanes is not None and "lanes" in lanes:
                 lanes = None
         elif k == curses.KEY_PPAGE:
             scroll += max(1, h - 6)
@@ -197,4 +215,7 @@ def main(scr, d: Path, start: str | None):
 if __name__ == "__main__":
     d = Path(sys.argv[1])
     os.environ.setdefault("ESCDELAY", "25")
-    curses.wrapper(main, d, sys.argv[2] if len(sys.argv) > 2 else None)
+    try:
+        curses.wrapper(main, d, sys.argv[2] if len(sys.argv) > 2 else None)
+    except KeyboardInterrupt:
+        pass
