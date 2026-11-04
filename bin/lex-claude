@@ -95,7 +95,7 @@ Usage:
   lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
-  lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Send a room message to every live Claude and Codex session of this repo (cmux agent messages) and print their replies. --in ID: follow-up to the lanes of room ID.
+  lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Paste a room message into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
   lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).

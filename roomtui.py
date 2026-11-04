@@ -96,7 +96,7 @@ def main(scr, d: Path, start: str | None):
     here = repo()
     lanes: list[str] | None = None  # live lanes of `here`, read when the new row is picked
     ids = room_ids(d)
-    cur = start if start in ids else (ids[0] if ids else NEW)
+    cur = start if start in ids else NEW
     target, buf, scroll, status = 0, "", 0, ""
 
     while True:

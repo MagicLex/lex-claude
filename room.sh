@@ -8,10 +8,10 @@
 #   room.sh lanes                    live sessions of this repo, one name per line
 #   room.sh go NAME
 #
-# A broadcast sends MESSAGE, under a header naming it a room message, through
-# cmux agent messages (delivered by the agent's hooks, never typed into its
-# terminal) to every live session whose cwd is in this repo or one of its
-# worktrees, except the caller's own. A Claude session is named by its session
+# A broadcast pastes MESSAGE, under a header naming it a room message, into the
+# cmux surface of every live session whose cwd is in this repo or one of its
+# worktrees, except the caller's own. Not cmux agent message: in cmux 0.65.1 it
+# stays queued for a Claude lane that cmux does not see as idle, with no error. A Claude session is named by its session
 # name, a Codex session by its cmux workspace title. A lane answers with
 # `lc reply ID`, never in its own chat; the sender prints the replies until
 # every reached lane answered or MIN minutes (default 5, 0 = no wait) pass.
@@ -19,7 +19,7 @@
 #
 # Files per room in ROOM_DIR, lines "time<TAB>name<TAB>text":
 #   ID.log  lane replies only
-#   ID.lex  what Lex sent, name "Lex > lane lane..."
+#   ID.lex  what was sent, name "SENDER > lane lane..." (SENDER is Lex, or the lane that sent)
 #   ID.to   names the first broadcast reached, one per line
 set -euo pipefail
 
@@ -114,6 +114,19 @@ repo_lanes() {
     NF { for (i = 1; i <= n; i++) if ($3 == r[i] || index($3, r[i] "/") == 1) { print; next } }'
 }
 
+# Who sends: the Claude or Codex lane this command runs under, else Lex.
+sender() {
+  local p=$$ f
+  while [ "${p:-0}" -gt 1 ]; do
+    for f in "$HOME"/.claude/sessions/"$p".json "$HOME"/.claude-*/sessions/"$p".json; do
+      [ -f "$f" ] && { jq -r '.name // "a lane"' "$f"; return; }
+    done
+    [ "$(ps -o comm= -p "$p" | sed 's|.*/||')" = codex ] && { my_session; return; }
+    p=$(ps -o ppid= -p "$p" | tr -d ' ')
+  done
+  echo Lex
+}
+
 cmd_say() {
   local to=() wait_min=5 id="" waited=0
   while [ $# -gt 0 ]; do
@@ -129,7 +142,7 @@ cmd_say() {
   local msg="$*"
   [ -n "$msg" ] || die "usage: lc room [--to NAME]... [--wait MIN] [--in ID] [--] MESSAGE"
 
-  local root="" head name
+  local root="" head name from; from=$(sender)
   if [ -n "$id" ]; then
     # A follow-up goes by name to lanes the room reached, wherever they run now.
     [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
@@ -137,11 +150,11 @@ cmd_say() {
       [ -s "$ROOM_DIR/$id.to" ] || die "room $id has no recorded lanes, name them with --to"
       while read -r name; do to+=("$name"); done < "$ROOM_DIR/$id.to"
     fi
-    head="[room $id] Follow-up from Lex (sent from $(my_session)) in room $id. Not typed in this chat. Answer in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: Lex reads replies in his terminal, not here."
+    head="[room $id] Follow-up from $from in room $id. Not typed in this chat. Answer in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: replies are read with lc room, not here."
   else
     local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
     id=$(date +%Y%m%d-%H%M%S)-$$
-    head="[room $id] Broadcast from Lex (sent from $(my_session)) to every Claude and Codex session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: Lex reads replies in his terminal, not here."
+    head="[room $id] Broadcast from $from to every Claude and Codex session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: replies are read with lc room, not here."
     mkdir -p "$ROOM_DIR"
     : > "$ROOM_DIR/$id.log"
   fi
@@ -155,7 +168,7 @@ cmd_say() {
       case " ${to[*]} " in *" $name "*) ;; *) continue ;; esac
     fi
     [ -n "$surface" ] || { echo "skip $name: no cmux surface"; continue; }
-    if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux agent message "$surface" --from Lex - 2>&1 >/dev/null); then
+    if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
       sent_to="$sent_to $name"; sent=$((sent+1))
     else
       echo "FAIL $name ($surface): $err"; failed=$((failed+1))
@@ -166,7 +179,7 @@ cmd_say() {
   # early reply has a place to land.
   if [ "$new" = 1 ] && [ "$sent" -eq 0 ]; then rm -f "$ROOM_DIR/$id.log"; echo "sent to nobody. $failed failed."; return 0; fi
   [ "$new" = 1 ] && printf '%s\n' $sent_to > "$ROOM_DIR/$id.to"
-  [ "$sent" -gt 0 ] && printf '%s\tLex >%s\t%s\n' "$(date +%H:%M:%S)" "$sent_to" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
+  [ "$sent" -gt 0 ] && printf '%s\t%s >%s\t%s\n' "$(date +%H:%M:%S)" "$from" "$sent_to" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
   echo "sent to${sent_to:- nobody}. $failed failed. id $id"
   echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
