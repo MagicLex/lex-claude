@@ -159,7 +159,7 @@ cmd_say() {
     : > "$ROOM_DIR/$id.log"
   fi
 
-  local sent=0 failed=0 sent_to="" pid cwd surface err lanes new=1
+  local sent=0 failed=0 sent_to="" failed_to="" pid cwd surface err lanes new=1
   [ -n "$root" ] || new=0
   if [ "$new" = 1 ]; then lanes=$(repo_lanes) || { rm -f "$ROOM_DIR/$id.log"; exit 1; }; else lanes=$(others) || exit 1; fi
   while IFS=$'\t' read -r name pid cwd surface; do
@@ -167,11 +167,11 @@ cmd_say() {
     if [ ${#to[@]} -gt 0 ]; then
       case " ${to[*]} " in *" $name "*) ;; *) continue ;; esac
     fi
-    [ -n "$surface" ] || { echo "skip $name: no cmux surface"; continue; }
+    [ -n "$surface" ] || { echo "skip $name: no cmux surface"; failed_to="$failed_to $name"; continue; }
     if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
       sent_to="$sent_to $name"; sent=$((sent+1))
     else
-      echo "FAIL $name ($surface): $err"; failed=$((failed+1))
+      echo "FAIL $name ($surface): $err"; failed=$((failed+1)); failed_to="$failed_to $name"
     fi
   done <<< "$lanes"
 
@@ -180,6 +180,11 @@ cmd_say() {
   if [ "$new" = 1 ] && [ "$sent" -eq 0 ]; then rm -f "$ROOM_DIR/$id.log"; echo "sent to nobody. $failed failed."; return 0; fi
   [ "$new" = 1 ] && printf '%s\n' $sent_to > "$ROOM_DIR/$id.to"
   [ "$sent" -gt 0 ] && printf '%s\t%s >%s\t%s\n' "$(date +%H:%M:%S)" "$from" "$sent_to" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
+  # A named lane that is no longer live (closed, or retired by a successor) is
+  # said, not dropped silently.
+  local gone="" t
+  for t in ${to[@]+"${to[@]}"}; do case " $sent_to $failed_to " in *" $t "*) ;; *) gone="$gone, $t" ;; esac; done
+  [ -z "$gone" ] || echo "not live:${gone#,}"
   echo "sent to${sent_to:- nobody}. $failed failed. id $id"
   echo
   [ "$wait_min" -gt 0 ] && [ "$sent" -gt 0 ] || return 0
