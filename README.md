@@ -128,32 +128,36 @@ Sessions outside cmux are skipped with a printed resume command.
 
 ### Room
 
-`lc say MESSAGE` pastes a broadcast into the cmux surface of every live Claude
-session (every account) and Codex session whose cwd is in the current repo or
-one of its worktrees, except the caller's own. A Claude session is named by its
-session name, a Codex session by its cmux workspace title. The header `[room ID] Broadcast from
-Lex` tells the session the text did not come from its own chat. `--to NAME`
-(repeatable) limits it to named sessions. A pane with a draft or an open dialog
-refuses the paste and is reported as `FAIL`.
+`lc room MESSAGE` sends a room message to every live Claude session (every
+account) and Codex session whose cwd is in the current repo or one of its
+worktrees, except the caller's own. A Claude session is named by its session
+name, a Codex session by its cmux workspace title. Delivery goes through
+`cmux agent message`: the agent's hooks hand it over, so it never lands in a
+half-typed prompt, and an idle session wakes up to read it. The header
+`[room ID] Broadcast from Lex` tells the session the text did not come from
+its own chat. `--to NAME` (repeatable) limits it to named sessions.
 
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
-are appended to `~/.claude/lex-claude/state/room/ID.log`, and `say` prints them
-until every reached session answered or `--wait MIN` minutes (default 5, 0 for
-no wait) pass.
+are appended to `~/.claude/lex-claude/state/room/ID.log`, and the sender
+prints them until every reached session answered or `--wait MIN` minutes
+(default 5, 0 for no wait) pass. One room is one thread.
 
-`lc say --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
-sessions the first broadcast reached (or the named ones), found by name
-wherever they run now. Its replies land in the same room.
+`lc room --in ID [--to NAME] MESSAGE` sends a follow-up in room ID to the
+sessions the first message reached (or the named ones), found by name
+wherever they run now. Its replies land in the same room. A message that is
+itself a room ID needs `--` before it.
 
 `lc room` opens a full-screen view (`roomtui.py`, Python curses): rooms on
-the left, newest first, the selected thread on the right in time order, live.
+the left, newest first, under a `+ new room` row for the repo at the current
+directory; the selected thread on the right in time order, live.
 `lc room ID` opens on room ID. The status line names the sessions that have
 not answered the last message.
 
 ```
 up/down      pick a room
 tab          cycle the target: all, then each session the room reached
-enter        send the typed line to the target (lc say --in)
+enter        send the typed line to the target: a new room on the
+             + row, a follow-up (--in) on a room
 ctrl-g       bring the target session's cmux tab to the front
 pgup/pgdn    scroll the thread
 esc          quit
@@ -195,10 +199,10 @@ lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claud
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
-lc say [--to NAME]... [--wait MIN] MESSAGE         # broadcast to every live session of this repo
-lc say --in ID [--to NAME]... MESSAGE              # follow-up in room ID
-lc reply ID TEXT                                   # answer a broadcast (run by the receiving session)
-lc room [ID]                                       # open a room thread: answer a session, jump to its tab
+lc room [ID]                                       # full-screen rooms: new message, answer a session, jump to its tab
+lc room [--to NAME]... [--wait MIN] MESSAGE        # message every live session of this repo
+lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
+lc reply ID TEXT                                   # answer a room message (run by the receiving session)
 lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
@@ -414,7 +418,7 @@ lex-claude/
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
-├── room.sh                      ← `lc say` / `reply` / `room`: broadcasts, follow-ups, room threads
+├── room.sh                      ← `lc room` / `reply`: room messages, follow-ups, threads
 ├── roomtui.py                   ← `lc room` full-screen view
 ├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
 ├── RULES.md                     ← canonical shared rules

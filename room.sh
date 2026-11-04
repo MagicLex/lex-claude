@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # Talk to every live Claude and Codex session of a repo from one terminal.
 #
-#   room.sh say [--to NAME]... [--wait MIN] [--in ID] MESSAGE
+#   room.sh room                     full-screen view; no terminal: list rooms
+#   room.sh room ID                  open room ID; no terminal: print its thread
+#   room.sh room [--to NAME]... [--wait MIN] [--in ID] [--] MESSAGE
 #   room.sh reply ID TEXT
-#   room.sh room [ID]
+#   room.sh lanes                    live sessions of this repo, one name per line
 #   room.sh go NAME
 #
-# say pastes MESSAGE, under a header naming it a room broadcast, into the cmux
-# surface of every live session whose cwd is in this repo or one of its
+# A broadcast sends MESSAGE, under a header naming it a room message, through
+# cmux agent messages (delivered by the agent's hooks, never typed into its
+# terminal) to every live session whose cwd is in this repo or one of its
 # worktrees, except the caller's own. A Claude session is named by its session
 # name, a Codex session by its cmux workspace title. A lane answers with
-# `lc reply ID`, never in its own chat; say prints the replies until every
-# reached lane answered or MIN minutes (default 5, 0 = no wait) pass.
+# `lc reply ID`, never in its own chat; the sender prints the replies until
+# every reached lane answered or MIN minutes (default 5, 0 = no wait) pass.
 # --in ID sends a follow-up in room ID to the lanes it reached (or --to NAME).
 #
 # Files per room in ROOM_DIR, lines "time<TAB>name<TAB>text":
@@ -92,6 +95,25 @@ live() {
   done <<< "$codex"
 }
 
+# live, minus the session this command runs under.
+others() {
+  local self=" " p=$$ lanes
+  while [ "${p:-0}" -gt 1 ]; do self="$self$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); done
+  lanes=$(live) || exit 1
+  printf '%s\n' "$lanes" | awk -F'\t' -v self="$self" 'NF && index(self, " "$2" ")==0'
+}
+
+# others, limited to the repo at $PWD and its worktrees.
+repo_lanes() {
+  local roots lanes
+  roots=$(git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p') || true
+  [ -n "$roots" ] || die "run inside a git repo"
+  lanes=$(others) || exit 1
+  # Roots go through the environment: BSD awk rejects a newline in -v.
+  printf '%s\n' "$lanes" | ROOTS="$roots" awk -F'\t' 'BEGIN {n = split(ENVIRON["ROOTS"], r, "\n")}
+    NF { for (i = 1; i <= n; i++) if ($3 == r[i] || index($3, r[i] "/") == 1) { print; next } }'
+}
+
 cmd_say() {
   local to=() wait_min=5 id=""
   while [ $# -gt 0 ]; do
@@ -105,12 +127,9 @@ cmd_say() {
     esac
   done
   local msg="$*"
-  [ -n "$msg" ] || die "usage: lc say [--to NAME]... [--wait MIN] [--in ID] MESSAGE"
+  [ -n "$msg" ] || die "usage: lc room [--to NAME]... [--wait MIN] [--in ID] [--] MESSAGE"
 
-  local self=" " p=$$
-  while [ "${p:-0}" -gt 1 ]; do self="$self$p "; p=$(ps -o ppid= -p "$p" | tr -d ' '); done
-
-  local roots="" head name
+  local root="" head name
   if [ -n "$id" ]; then
     # A follow-up goes by name to lanes the room reached, wherever they run now.
     [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
@@ -121,33 +140,32 @@ cmd_say() {
     head="[room $id] Follow-up from Lex (sent from $(my_session)) in room $id. Not typed in this chat. Answer in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: Lex reads replies in his terminal, not here."
   else
     local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
-    roots=$(git worktree list --porcelain | sed -n 's/^worktree //p')
     id=$(date +%Y%m%d-%H%M%S)-$$
     head="[room $id] Broadcast from Lex (sent from $(my_session)) to every Claude and Codex session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: Lex reads replies in his terminal, not here."
     mkdir -p "$ROOM_DIR"
     : > "$ROOM_DIR/$id.log"
   fi
 
-  local sent=0 failed=0 sent_to="" pid cwd surface err lanes
-  lanes=$(live) || exit 1
+  local sent=0 failed=0 sent_to="" pid cwd surface err lanes new=1
+  [ -n "$root" ] || new=0
+  if [ "$new" = 1 ]; then lanes=$(repo_lanes) || { rm -f "$ROOM_DIR/$id.log"; exit 1; }; else lanes=$(others) || exit 1; fi
   while IFS=$'\t' read -r name pid cwd surface; do
     [ -n "$pid" ] || continue
-    case "$self" in *" $pid "*) continue ;; esac
-    if [ -n "$roots" ]; then
-      printf '%s\n' "$roots" | awk -v d="$cwd" 'd==$0 || index(d, $0"/")==1 {ok=1} END {exit !ok}' || continue
-    fi
     if [ ${#to[@]} -gt 0 ]; then
       case " ${to[*]} " in *" $name "*) ;; *) continue ;; esac
     fi
     [ -n "$surface" ] || { echo "skip $name: no cmux surface"; continue; }
-    if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
+    if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux agent message "$surface" --from Lex - 2>&1 >/dev/null); then
       sent_to="$sent_to $name"; sent=$((sent+1))
     else
       echo "FAIL $name ($surface): $err"; failed=$((failed+1))
     fi
   done <<< "$lanes"
 
-  [ -n "$roots" ] && printf '%s\n' $sent_to > "$ROOM_DIR/$id.to"
+  # A new room nobody got is not kept. Its log exists before delivery so an
+  # early reply has a place to land.
+  if [ "$new" = 1 ] && [ "$sent" -eq 0 ]; then rm -f "$ROOM_DIR/$id.log"; echo "sent to nobody. $failed failed."; return 0; fi
+  [ "$new" = 1 ] && printf '%s\n' $sent_to > "$ROOM_DIR/$id.to"
   [ "$sent" -gt 0 ] && printf '%s\tLex >%s\t%s\n' "$(date +%H:%M:%S)" "$sent_to" "$(printf '%s' "$msg" | tr '\n\t' '  ')" >> "$ROOM_DIR/$id.lex"
   echo "sent to${sent_to:- nobody}. $failed failed. id $id"
   echo
@@ -203,25 +221,30 @@ jump() {
     && cmux focus-pane --pane "$3" --workspace "$2" --window "$1" >/dev/null && echo "jumped to $name"
 }
 
-# lc room [ID]: the full-screen room view (roomtui.py). Without a terminal it
+is_id() { [[ $1 =~ ^[0-9]{8}-[0-9]{6}-[0-9]+$ ]]; }
+
+# lc room: no argument opens the full-screen view (roomtui.py), one room ID
+# opens that room, anything else sends a message. Without a terminal the view
 # prints instead: the room list, or the thread of ID.
 cmd_room() {
-  local id="${1:-}"
+  local id=""
+  if [ $# -gt 1 ] || { [ $# -eq 1 ] && ! is_id "$1"; }; then cmd_say "$@"; return; fi
+  id="${1:-}"
+  [ -z "$id" ] || [ -f "$ROOM_DIR/$id.log" ] || die "no room $id"
   if [ -t 0 ] && [ -t 1 ]; then
-    [ -z "$id" ] || [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
     mkdir -p "$ROOM_DIR"
     exec python3 "$(dirname "$0")/roomtui.py" "$ROOM_DIR" ${id:+"$id"}
   elif [ -n "$id" ]; then
-    [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"; thread "$id" | show
+    thread "$id" | show
   else
     rooms
   fi
 }
 
 case "${1:-}" in
-  say) shift; cmd_say "$@" ;;
   reply) shift; cmd_reply "$@" ;;
   room) shift; cmd_room "$@" ;;
+  lanes) others_names=$(repo_lanes) || exit 1; printf '%s\n' "$others_names" | cut -f1 | sed '/^$/d' ;;
   go) shift; jump "${1:?usage: room.sh go NAME}" ;;
-  *) die "usage: room.sh say|reply|room|go ..." ;;
+  *) die "usage: room.sh room|reply|lanes|go ..." ;;
 esac

@@ -93,9 +93,9 @@ Usage:
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
   lex-claude tokens [--session ID] [--json]            Show measured Codex context tokens and the handoff threshold.
   lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
-  lex-claude say [--to NAME]... [--wait MIN] [--in ID] MESSAGE  Paste a room broadcast into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
-  lex-claude room [ID]                                          Full-screen room view: live threads, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
+  lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
+  lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Send a room message to every live Claude and Codex session of this repo (cmux agent messages) and print their replies. --in ID: follow-up to the lanes of room ID.
   lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
@@ -1285,9 +1285,9 @@ Available subcommands (run with `lc <cmd>`):
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `tokens [--session ID] [--json]`           measured Codex context usage and handoff threshold
 - `move --to main|alt|alt2|... [--dry-run] [ID...]`  resume live sessions on another account (usage limit hit)
-- `say [--to NAME]... [--wait MIN] [--in ID] MESSAGE`  broadcast from Lex to every live session of this repo (--in: follow-up in room ID); a `[room ID]` prompt comes from him, not the chat
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
+- `room [--to NAME]... [--in ID] MESSAGE`     message from Lex to every live session of this repo (--in: follow-up in room ID); a `[room ID]` message comes from him, not the chat
 - `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
@@ -1557,7 +1557,7 @@ cmd_claude() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|say|reply|room|lane|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|reply|room|lane|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1607,7 +1607,7 @@ case "${1:-}" in
     lane_sh="$SELF_DIR/lane.sh"; [ -x "$lane_sh" ] || lane_sh="$INSTALL_DIR/lane.sh"
     exec bash "$lane_sh" "$@"
     ;;
-  say|reply|room)
+  reply|room)
     sub=$1; shift
     room_sh="$SELF_DIR/room.sh"; [ -x "$room_sh" ] || room_sh="$INSTALL_DIR/room.sh"
     exec bash "$room_sh" "$sub" "$@"
