@@ -223,11 +223,13 @@ jump() {
 
 is_id() { [[ $1 =~ ^[0-9]{8}-[0-9]{6}-[0-9]+$ ]]; }
 
-# lc room: no argument opens the full-screen view (roomtui.py), one room ID
+# lc room: no argument (or "") opens the full-screen view (roomtui.py), one room ID
 # opens that room, anything else sends a message. Without a terminal the view
 # prints instead: the room list, or the thread of ID.
 cmd_room() {
   local id=""
+  # An empty message (lc room "") opens the view like no argument.
+  [ $# -eq 1 ] && [ -z "$1" ] && shift
   if [ $# -gt 1 ] || { [ $# -eq 1 ] && ! is_id "$1"; }; then cmd_say "$@"; return; fi
   id="${1:-}"
   [ -z "$id" ] || [ -f "$ROOM_DIR/$id.log" ] || die "no room $id"

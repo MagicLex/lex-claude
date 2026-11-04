@@ -147,7 +147,7 @@ sessions the first message reached (or the named ones), found by name
 wherever they run now. Its replies land in the same room. A message that is
 itself a room ID needs `--` before it.
 
-`lc room` opens a full-screen view (`roomtui.py`, Python curses): rooms on
+`lc room` (or `lc room ""`) opens a full-screen view (`roomtui.py`, Python curses): rooms on
 the left, newest first, under a `+ new room` row for the repo at the current
 directory; the selected thread on the right in time order, live.
 `lc room ID` opens on room ID. The status line names the sessions that have
