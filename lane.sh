@@ -38,6 +38,5 @@ TASK="$task" python3 -c 'import os,sys; sys.stdout.write(open(sys.argv[1]).read(
 } > "$dir/$id.launch"
 chmod +x "$dir/$id.launch"
 
-CMUX_QUIET=1 cmux workspace create --name "lane" --description "$task" \
-  --cwd "$root" --command "$dir/$id.launch" --focus true >/dev/null
+CMUX_QUIET=1 bash "$(dirname "$0")/cmux-open.sh" "$root" lane "$task" "$dir/$id.launch" >/dev/null
 echo "lane started in $(basename "$root"): $task"

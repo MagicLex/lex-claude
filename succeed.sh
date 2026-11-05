@@ -90,14 +90,13 @@ open_successor() {
   } > "$launcher" && chmod +x "$launcher" || { echo "   open: cannot write launcher $launcher" >&2; return 1; }
   case "$app" in
     cmux)
-      # cmux prints "OK workspace:N" on success and "Error: ..." (exit != 0) otherwise.
+      # cmux-open.sh opens it in the repo's window (else a new one) and exits non-zero with cmux's error.
       # cmux-name.sh renames the workspace to the agent name once claude starts; the description stays
       # and marks it as a successor in the sidebar (same lineage as the statusline).
       local gen="" parent="" desc="successor"
       [ -f "$LINEAGE_DIR/$id" ] && IFS=$'\t' read -r gen parent < "$LINEAGE_DIR/$id"
       [ -n "$gen" ] && [ -n "$parent" ] && desc="successor gen$gen ←$(printf '%s' "${parent:0:8}" | tr 'A-Z' 'a-z')"
-      err=$(CMUX_QUIET=1 cmux workspace create --name "successor ${id%%-*}" --description "$desc" \
-        --cwd "$dir" --command "$launcher" --focus true 2>&1) && err="" ;;
+      err=$(CMUX_QUIET=1 bash "$SELF_DIR/cmux-open.sh" "$dir" "successor ${id%%-*}" "$desc" "$launcher" 2>&1) && err="" ;;
     iTerm)
       err=$(osascript 2>&1 >/dev/null <<OSA
 tell application "iTerm"
