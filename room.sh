@@ -132,8 +132,10 @@ repo_lanes() {
     NF { for (i = 1; i <= n; i++) if ($3 == r[i] || index($3, r[i] "/") == 1) { print; next } }'
 }
 
-# Who sends: the Claude or Codex lane this command runs under, else Lex.
+# Who sends: LC_ROOM_FROM when a script names itself (a detached loop has no lane above it), else the Claude or Codex
+# lane this command runs under, else Lex.
 sender() {
+  [ -n "${LC_ROOM_FROM:-}" ] && { printf '%s\n' "$LC_ROOM_FROM"; return; }
   local p=$$ f
   while [ "${p:-0}" -gt 1 ]; do
     for f in "$HOME"/.claude/sessions/"$p".json "$HOME"/.claude-*/sessions/"$p".json; do

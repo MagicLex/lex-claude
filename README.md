@@ -135,6 +135,8 @@ name, a Codex session by its cmux workspace title. The message is pasted into
 the session's cmux surface; a pane with a draft or an open dialog refuses the
 paste and is reported as `FAIL`. The header `[room ID] Broadcast from Lex`
 tells the session the text did not come from its own chat. `--to NAME` (repeatable) limits it to named sessions.
+The sender is the Claude or Codex lane the command runs under, else Lex; a script with no lane above it (a detached
+loop) names itself with `LC_ROOM_FROM=NAME`.
 
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
 are appended to `~/.claude/lex-claude/state/room/ID.log`. In a terminal the
