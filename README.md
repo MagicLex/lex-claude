@@ -92,8 +92,9 @@ claude-alt() { CLAUDE_CONFIG_DIR="$HOME/.claude-alt" command lex-claude claude "
 Open a new terminal, run `claude-alt`, and sign in with the second account.
 `claude` and `claude-alt` can run concurrently. Credentials and session history
 stay separate. Settings, identity, skills, and hooks are shared. Settings edits
-in either account apply to both. Plugins and user MCP connections need separate
-setup. Do not copy `.claude.json` or credential files between accounts.
+in either account apply to both. Plugins need separate setup; MCP servers are
+checked and fixed by `lc mcp` (below). Do not copy `.claude.json` or credential
+files between accounts.
 
 For a third account, create `~/.claude-alt2` with the same shared settings:
 
@@ -125,6 +126,33 @@ Folder trust is accepted only where the source account already trusts the
 folder. Background agents, shells and monitors do not survive the move.
 Sessions outside cmux are skipped with a printed resume command.
 `--dry-run` lists what would move.
+
+### MCP servers per account
+
+`mcp.json` lists what every account must have: claude.ai connectors
+(`connectors`, by their claude.ai name) and local servers (`servers`, the JSON
+`claude mcp add-json` takes, no secrets).
+
+```
+lc mcp                 # per account: claude.ai user, each connector not ok, missing local servers; exit 1 on a gap
+lc mcp fix [ACCOUNT]   # every account, or one
+```
+
+Connectors belong to the claude.ai user, not the org. Their state is read from
+claude.ai (`/api/organizations/<org>/mcp/remote_servers_with_connection`) in
+the agent Chrome, so only for the user that window is logged in as. Other
+accounts fall back to `claude mcp list`, whose `ok` prints as `ok?`: in
+2.1.319 it showed Google Docs as connected for a user claude.ai shows as not
+connected. `auth` and `absent` are real gaps either way.
+
+`fix` adds missing local servers with `claude mcp add-json -s user` into the
+account's config. For connector gaps it checks the agent Chrome's claude.ai
+user. On the wrong user it asks for a log in as the account's email and polls
+until it matches. Then it lists the gaps to connect on
+`claude.ai/customize/connectors` and polls claude.ai until they are connected.
+Waits are bounded at 10 minutes. `/mcp` OAuth opens whatever claude.ai login
+the browser holds, so a connector can land on the wrong user while `/mcp`
+reports success.
 
 ### Room
 
@@ -221,6 +249,7 @@ lc room [--to NAME]... [--wait MIN] MESSAGE        # message every live session 
 lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
 lc reply ID TEXT                                   # answer a room message (run by the receiving session)
 lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt
+lc mcp [fix [ACCOUNT]]                             # MCP connectors and local servers per account, from mcp.json
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
 lc -help | -h | --help | help                      # all variants
@@ -438,6 +467,8 @@ lex-claude/
 ├── room.sh                      ← `lc room` / `reply`: room messages, follow-ups, threads
 ├── roomtui.py                   ← `lc room` full-screen view
 ├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
+├── mcp.sh                       ← `lc mcp`: MCP connectors and servers per account
+├── mcp.json                     ← expected connectors and local servers
 ├── RULES.md                     ← canonical shared rules
 ├── DIGEST.md                    ← condensed rules digest (kept in step with RULES.md by hand)
 ├── identities/

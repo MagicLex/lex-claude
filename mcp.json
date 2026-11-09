@@ -1,0 +1,14 @@
+{
+  "connectors": [
+    "Gmail",
+    "Google Drive",
+    "Google Docs",
+    "Google Sheets",
+    "Google Slides",
+    "Atlassian MCP",
+    "Slack"
+  ],
+  "servers": {
+    "hopsworks-docs": { "type": "http", "url": "https://mcp.hopsworks.ai/mcp" }
+  }
+}

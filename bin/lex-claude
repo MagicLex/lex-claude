@@ -97,6 +97,8 @@ Usage:
   lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
   lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Paste a room message into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
   lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
+  lex-claude mcp                                                Report each account's claude.ai user, expected connectors and local MCP servers (mcp.json).
+  lex-claude mcp fix [ACCOUNT]                                  Add missing local servers, then walk connector gaps in the agent Chrome as the right claude.ai user.
   lex-claude doctor             Sanity-check the install.
   lex-claude version            Print install version (commit count + date).
 
@@ -1289,6 +1291,8 @@ Available subcommands (run with `lc <cmd>`):
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
 - `room [--to NAME]... [--in ID] MESSAGE`     message from Lex to every live session of this repo (--in: follow-up in room ID); a `[room ID]` message comes from him, not the chat
 - `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
+- `mcp`                                       per account: claude.ai user, expected connectors, missing local MCP servers (mcp.json)
+- `mcp fix [ACCOUNT]`                         add missing local servers, walk connector gaps in the agent Chrome as the right claude.ai user
 - `init zsh|bash`                             output shell completion
 - `init claude`                               print this command reference
 - `github-login [--token TOKEN]`              wire gh + git auth (no args = auto-detect: authed/env/device-flow/ssh; idempotent). Also sets git author when unset or pod default
@@ -1557,7 +1561,7 @@ cmd_claude() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|reply|room|lane|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|reply|room|lane|mcp|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1601,6 +1605,11 @@ case "${1:-}" in
     shift
     move_sh="$SELF_DIR/move.sh"; [ -x "$move_sh" ] || move_sh="$INSTALL_DIR/move.sh"
     exec bash "$move_sh" "$@"
+    ;;
+  mcp)
+    shift
+    mcp_sh="$SELF_DIR/mcp.sh"; [ -x "$mcp_sh" ] || mcp_sh="$INSTALL_DIR/mcp.sh"
+    exec bash "$mcp_sh" "$@"
     ;;
   lane)
     shift
