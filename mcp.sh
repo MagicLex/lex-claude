@@ -52,7 +52,7 @@ tmp=$(mktemp -d)
 tab=""
 cleanup() { [ -z "$tab" ] || "$B" tab close "$tab" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
 trap cleanup EXIT
-trap 'exit 130' INT TERM
+trap 'exit 130' INT TERM HUP PIPE
 
 # One claude.ai tab for the whole run: fetch() needs the claude.ai origin.
 open_tab() {
