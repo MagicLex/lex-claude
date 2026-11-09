@@ -134,7 +134,7 @@ Sessions outside cmux are skipped with a printed resume command.
 `claude mcp add-json` takes, no secrets).
 
 ```
-lc mcp                 # per account: claude.ai user, each connector not ok, missing local servers; exit 1 on a gap
+lc mcp                 # per account: claude.ai user, connector gaps, missing local servers; exit 1 on a gap
 lc mcp fix [ACCOUNT]   # every account, or one
 ```
 
@@ -150,7 +150,12 @@ account's config. For connector gaps it checks the agent Chrome's claude.ai
 user. On the wrong user it asks for a log in as the account's email and polls
 until it matches. Then it lists the gaps to connect on
 `claude.ai/customize/connectors` and polls claude.ai until they are connected.
-Waits are bounded at 10 minutes. `/mcp` OAuth opens whatever claude.ai login
+Before that it sets claude.ai's `lastActiveOrg` cookie to the account's org:
+a user in several orgs otherwise connects in the org last used on the web,
+not the one Claude Code uses. Once every connector is ok it drops their
+entries from the account's `mcp-needs-auth-cache.json`. Claude Code skips a
+connector cached as needing auth at session start, so a stale entry hides a
+connector that claude.ai shows as connected. Waits are bounded at 10 minutes. `/mcp` OAuth opens whatever claude.ai login
 the browser holds, so a connector can land on the wrong user while `/mcp`
 reports success.
 

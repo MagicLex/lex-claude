@@ -97,20 +97,30 @@ status() {
 gaps() { status "$1" | awk -F'\t' '$3 != "ok?"'; }
 
 report() {
-  local a rc=0 s who="" src
+  local a rc=0 s n who="" src
   open_tab && who=$(browser_email)
   for a in "$@"; do [ "$(email "$a")" = "$who" ] || probe_cli "$a" & done; wait
   for a in "$@"; do
     src="claude mcp list"
     [ "$(email "$a")" = "$who" ] && { probe_api "$a"; src="claude.ai"; }
-    s=$(status "$a")
+    s=$(gaps "$a")
     printf '%-6s %s (connectors via %s)\n' "$a" "$(email "$a")" "$src"
-    [ -z "$(gaps "$a")" ] || rc=1
-    if [ -z "$s" ]; then echo "       ok"
-    else printf '%s\n' "$s" | awk -F'\t' '{ printf "       %-9s %-15s %s\n", $1, $2, $3 }'; fi
+    [ -z "$s" ] || { rc=1; printf '%s\n' "$s" | awk -F'\t' '{ printf "       %-9s %-15s %s\n", $1, $2, $3 }'; }
+    n=$(status "$a" | awk -F'\t' '$3 == "ok?"' | wc -l | tr -d ' ')
+    [ "$n" = 0 ] || echo "       $n connectors ok? (claude mcp list, unverified)"
+    [ -n "$s" ] || [ "$n" != 0 ] || echo "       ok"
   done
   [ -n "$who" ] || echo "agent Chrome not on claude.ai: no connector state verified on claude.ai"
   return $rc
+}
+
+# Claude Code caches "needs authentication" per connector and skips cached ones
+# at session start, so a connector fixed on claude.ai stays hidden until the
+# entry goes. Drops the entries of expected connectors, which are ok now.
+clear_cache() {
+  local f; f="$(acct_dir "$1")/mcp-needs-auth-cache.json"
+  [ -f "$f" ] || return 0
+  jq --slurpfile spec "$SPEC" 'with_entries(select(.key | ltrimstr("claude.ai ") as $n | $spec[0].connectors | index($n) | not))' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
 fix() {
@@ -131,16 +141,18 @@ fix() {
       [ "$got" = "$want" ] && break
     done
     [ "$got" = "$want" ] || die "$a: still not logged in as $want; run 'lc mcp fix $a' again"
-    "$B" open "$CONNECTORS_URL" >/dev/null 2>&1
   fi
+  # The web acts in its last active org; the account's connectors live in its own.
+  "$B" eval "document.cookie='lastActiveOrg=$(org "$a"); path=/; domain=.claude.ai; max-age=31536000'" >/dev/null 2>&1
+  "$B" open "$CONNECTORS_URL" >/dev/null 2>&1
 
   probe_api "$a"; g=$(gaps "$a")
-  [ -n "$g" ] || { echo "$a: ok"; return 0; }
+  [ -n "$g" ] || { clear_cache "$a"; echo "$a: ok"; return 0; }
   echo "$a: connect these on $CONNECTORS_URL (agent Chrome, as $want):"
   cut -f2,3 <<< "$g" | sed 's/^/  /'
   for ((i = 0; i < POLL_MAX; i++)); do
     sleep "$POLL_SECS"; probe_api "$a"
-    [ -n "$(gaps "$a")" ] || { echo "$a: ok"; return 0; }
+    [ -n "$(gaps "$a")" ] || { clear_cache "$a"; echo "$a: ok"; return 0; }
   done
   echo "$a: still missing after $((POLL_SECS * POLL_MAX))s:"
   gaps "$a" | cut -f2,3 | sed 's/^/  /'
