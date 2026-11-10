@@ -316,7 +316,7 @@ Three escape hatches if you want to neutralise a piece without uninstalling.
 - `LEX_CLAUDE_NO_AUTO_UPDATE=1`: disables the daily `git pull` + re-exec on `lc <cmd>`. Use when you want frozen behaviour (CI runs, shared machines, long-running scripts).
 - `LEX_CLAUDE_YES=1`: equivalent to `lc install --yes`; skips the destructive-overwrite prompt. Use only when you've read the warning above and accept it.
 - `LEX_CLAUDE_NO_USAGE=1`: turns off usage logging (`lc usage` keeps reading the existing log but records nothing new). `LEX_CLAUDE_DISABLE=1` also stops it.
-- `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style hook.
+- `LEX_CLAUDE_DIGEST_EVERY=0`: turns off the periodic rules digest (any other value sets the cadence in prompts, default 5). `LEX_CLAUDE_DISABLE=1` also stops it, along with the style and retry hooks.
 - `LEX_CLAUDE_HANDOFF_DISABLE=1`: turns off the token-triggered succession (the `Stop` hook fires nothing near the limit). `LEX_CLAUDE_DISABLE=1` also stops it.
 - `LEX_CLAUDE_COLDSTART_DISABLE=1`: turns off the `lc claude` pre-flight; the launcher hands over the seat without verifying identity/rules load first.
 - `LEX_CLAUDE_HANDOFF_TOKENS` (default 600000): Claude context-token threshold at which succession fires. `LEX_CLAUDE_SUCCESSION_MAX` (default 3): reroll cap. `LEX_CLAUDE_MASTER_MODEL` (default haiku): the drift-judge model.
@@ -383,7 +383,16 @@ Rules injected once at SessionStart lose attention weight as the context grows. 
 - **`digest.sh`** (`UserPromptSubmit`): re-injects `DIGEST.md`, a hand-condensed ~15-line digest of `RULES.md`, every Nth prompt. Cadence via `LEX_CLAUDE_DIGEST_EVERY` (default 5, `0` = off). State: a per-session prompt counter in `~/.claude/lex-claude/.digest/`, pruned after 7 days. Compaction and resume are already covered: the SessionStart hook re-fires on both and reloads the full rules.
 - **`style.sh`** (`PostToolUse` on `Write|Edit|MultiEdit`): greps written `.md`/`.mdx` files for em dashes and feeds hits back to Claude. Deterministic enforcement of the writing-style rule instead of hoping the model remembers it. Skips model-facing config (`CLAUDE.md`, `RULES.md`, `DIGEST.md`, `SKILL.md`, `MEMORY.md`, anything under `.claude/`, `identities/`, `memory/`).
 
+- **`retry.sh`** (`PostToolUseFailure` on `Bash`): when the same command fails with the same error twice in one session, tells Claude to stop retrying and change the approach or report back. State: one file of hashes per session in `~/.claude/lex-claude/state/retry/`, pruned after 2 days.
+
 When you edit `RULES.md`, keep `DIGEST.md` in step. It is a manual condensation, not generated.
+
+Run the digest and retry hooks against an isolated home:
+
+```bash
+python3 tests/integration_digest.py
+python3 tests/integration_retry.py
+```
 
 ## Session flow
 
@@ -466,6 +475,7 @@ lex-claude/
 ├── cmux-name.sh                 ← SessionStart: cmux workspace title = agent name
 ├── digest.sh                    ← UserPromptSubmit rules-digest re-injection
 ├── style.sh                     ← PostToolUse em-dash check on user-facing md
+├── retry.sh                     ← PostToolUseFailure: same command, same error, twice: stop
 ├── usage.sh                     ← usage logger + `lc usage` report (debloat aid)
 ├── statusline-command.sh        ← managed statusline
 ├── move.sh                      ← `lc move`: resume live sessions on the other account

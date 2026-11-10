@@ -205,6 +205,7 @@ wire_hook() {
   local ucmd="bash $INSTALL_DIR/usage.sh hook"
   local dcmd="bash $INSTALL_DIR/digest.sh"
   local scmd="bash $INSTALL_DIR/style.sh"
+  local tcmd="bash $INSTALL_DIR/retry.sh"
   local sucmd="bash $INSTALL_DIR/succeed.sh"
   local ncmd="bash $INSTALL_DIR/cmux-name.sh"
   local rcmd="python3 $INSTALL_DIR/retirement.py hook claude"
@@ -228,7 +229,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" --arg rcmd "$rcmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg tcmd "$tcmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" --arg rcmd "$rcmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -267,6 +268,14 @@ wire_hook() {
     ] |
     .hooks.PostToolUse += [
       {"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":$scmd}]}
+    ] |
+    .hooks.PostToolUseFailure //= [] |
+    .hooks.PostToolUseFailure = [
+      .hooks.PostToolUseFailure[]
+      | select(all(.hooks[]?; (.command // "") | test("lex-claude/retry") | not))
+    ] |
+    .hooks.PostToolUseFailure += [
+      {"matcher":"Bash","hooks":[{"type":"command","command":$tcmd}]}
     ] |
     .hooks.Stop //= [] |
     .hooks.Stop = [
@@ -1419,6 +1428,7 @@ cmd_doctor() {
   _hook_wired "lex-claude/usage" && echo "ok    usage hook wired" || echo "warn  usage hook not wired (skill tracking off). run 'lc update'"
   _hook_wired "lex-claude/digest" && echo "ok    digest hook wired" || echo "warn  digest hook not wired (rules recall off). run 'lc update'"
   _hook_wired "lex-claude/style" && echo "ok    style hook wired" || echo "warn  style hook not wired (em-dash check off). run 'lc update'"
+  _hook_wired "lex-claude/retry" && echo "ok    retry hook wired" || echo "warn  retry hook not wired (repeat-failure check off). run 'lc update'"
   _hook_wired "lex-claude/succeed" && echo "ok    succession trigger wired (Stop → succeed.sh check)" || echo "warn  succession trigger not wired (token handoff off). run 'lc update'"
   { [ -x "$INSTALL_DIR/master.sh" ] && [ -x "$INSTALL_DIR/succeed.sh" ]; } && echo "ok    master.sh + succeed.sh present" || echo "warn  master.sh/succeed.sh missing (succession broken). run 'lc update'"
   if [ -f "$INSTALL_DIR/codex.py" ] && jq -e '[.hooks.Stop[]?.hooks[]? | select(.command | contains("/codex.py"))] | length > 0' "$CODEX_DIR/hooks.json" >/dev/null 2>&1; then
