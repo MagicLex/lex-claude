@@ -44,4 +44,6 @@ printf '%s\n' "$count" > "$state" 2>/dev/null || true
 printf '===== lex-claude rules digest (periodic recall; full rules were loaded at session start) =====\n'
 sed '/<!--/,/-->/d' "$DIGEST"   # strip the maintenance comment, no need to re-pay it every injection
 # A project's team working rules (docs/TEAM.md) change during a session and are lost across handoffs.
-[ -n "$cwd" ] && [ -f "$cwd/docs/TEAM.md" ] && printf '\nTeam rules: re-read %s/docs/TEAM.md now and follow it; brief every subagent and successor to read it first.\n' "$cwd"
+if [ -n "$cwd" ] && [ -f "$cwd/docs/TEAM.md" ]; then
+  printf '\nTeam rules: re-read %s/docs/TEAM.md now and follow it; brief every subagent and successor to read it first.\n' "$cwd"
+fi
