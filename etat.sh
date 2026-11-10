@@ -40,7 +40,7 @@ git_state() {
   local br sha dirty ahead last
   br=$(git -C "$d" branch --show-current 2>/dev/null); [ -n "$br" ] || br="(detached)"
   sha=$(git -C "$d" rev-parse --short HEAD 2>/dev/null || echo "?")
-  dirty=$(git -C "$d" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  dirty=$(git -C "$d" --no-optional-locks status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   ahead=$(git -C "$d" rev-list --count '@{u}..HEAD' 2>/dev/null || echo "?")
   last=$(git -C "$d" log -1 --format='%s (%cr)' 2>/dev/null || echo "none")
   echo "branch: $br @ $sha | dirty: $dirty | unpushed: $ahead | last commit: $last"
