@@ -1416,7 +1416,14 @@ cmd_doctor() {
   else
     echo "warn  statusline not symlinked"
   fi
-  grep -q "statusline-command.sh" "$SETTINGS" 2>/dev/null && echo "ok    statusline wired" || echo "warn  statusline not wired in $SETTINGS"
+  if grep -q "statusline-command.sh" "$SETTINGS" 2>/dev/null; then
+    echo "ok    statusline wired"
+  # languageme replaces statusLine with its wrapper and keeps ours as the inner command.
+  elif grep -q "statusline-command.sh" "$HOME/.languageme/state.json" 2>/dev/null; then
+    echo "ok    statusline wired (wrapped by languageme)"
+  else
+    echo "warn  statusline not wired in $SETTINGS"
+  fi
   [ -L "$BIN_LINK" ] && echo "ok    cli ($BIN_LINK)" || { echo "fail  cli not symlinked"; ok=0; }
   [ -L "$BIN_ALIAS" ] && echo "ok    alias lc → lex-claude" || { echo "fail  alias 'lc' not symlinked"; ok=0; }
   if [ -L "$BIN_HOPS" ] && [ -e "$BIN_HOPS" ]; then
