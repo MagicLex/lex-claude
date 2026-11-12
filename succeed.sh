@@ -42,9 +42,8 @@ projects_dir() { printf '%s/projects/%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "
 KICKOFF="Resumed after the handover: take over the briefed work now. Start with the opening move you gave, then carry on."
 
 # Open the verified successor in a NEW terminal window running `claude --resume`.
-# macOS only: cmux (new workspace, via its CLI), iTerm, Terminal.app. cmux is
-# checked first: inside it TERM_PROGRAM reads ghostty and neither iTerm nor
-# Terminal may be running. The window runs a tiny launcher script (cd,
+# macOS only: cmux (new workspace, via its CLI), iTerm, Terminal.app. A cmux that
+# answers `cmux ping` always wins; iTerm or Terminal only when cmux is absent. The window runs a tiny launcher script (cd,
 # then a login+interactive zsh so PATH/aliases resolve exactly as in the user's
 # shell) as the session's own command: no typing text into a shell that may not
 # be ready yet. Failures are reported on stderr, not swallowed. A silent
@@ -53,15 +52,18 @@ open_successor() {
   local id="$1" dir="$2" kick="${3:+ \"$3\"}" app="" err qdir launcher
   launcher="$LATCH_DIR/$id.launch"   # separate line: `local a=$1 b=$a` expands $a before a is set
   case "$(uname -s 2>/dev/null)" in Darwin) ;; *) echo "   open: not macOS, no auto-open" >&2; return 1 ;; esac
-  case "${TERM_PROGRAM:-}" in
-    iTerm.app) app=iTerm ;;
-    Apple_Terminal) app=Terminal ;;
-    *) # TERM_PROGRAM may not reach a hook/tool shell; use whichever is running.
-       if [ -n "${CMUX_SOCKET_PATH:-}" ] && command -v cmux >/dev/null 2>&1; then app=cmux
-       elif pgrep -xq iTerm2 2>/dev/null; then app=iTerm
-       elif pgrep -xq Terminal 2>/dev/null; then app=Terminal
-       else echo "   open: no cmux/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
-  esac
+  # A running cmux wins: a headless or resumed session lacks CMUX_SOCKET_PATH and may carry
+  # an iTerm TERM_PROGRAM, yet `cmux ping` reaches the app on its default socket.
+  if command -v cmux >/dev/null 2>&1 && cmux ping >/dev/null 2>&1; then app=cmux
+  else
+    case "${TERM_PROGRAM:-}" in
+      iTerm.app) app=iTerm ;;
+      Apple_Terminal) app=Terminal ;;
+      *) if pgrep -xq iTerm2 2>/dev/null; then app=iTerm
+         elif pgrep -xq Terminal 2>/dev/null; then app=Terminal
+         else echo "   open: no cmux/iTerm/Terminal detected (TERM_PROGRAM=${TERM_PROGRAM:-unset})" >&2; return 1; fi ;;
+    esac
+  fi
   [ "$app" = cmux ] || command -v osascript >/dev/null 2>&1 || { echo "   open: osascript missing" >&2; return 1; }
   mkdir -p "$LATCH_DIR" 2>/dev/null || return 1
   # Single-quote the dir for the shell ('\'' escapes an embedded quote).
