@@ -51,7 +51,7 @@ Docs, README, code comments, commits, PRs, tickets, error messages, blog, chat. 
 # PRs, Jira tickets, GitHub comments
 - **Speak as the assistant.** On tickets, PRs, and code-host comments, report facts as the assistant and attribute actions to yourself, keeping the user out of the first person. Writing *as* Lex (`lc-voice`) is opt-in for outreach and published content only.
 - **Hopsworks workflow:** fork = PR = ticket name. One ticket, one branch, one PR, all carrying the same key.
-- Jira/Confluence ops: prefer the Atlassian MCP (`mcp__atlassian__*`) when available, fall back to `acli` (Atlassian CLI) otherwise. English, always.
+- Jira/Confluence ops: prefer the Atlassian MCP (`mcp__claude_ai_Atlassian_MCP__*`) when available, fall back to `acli` (Atlassian CLI) otherwise. English, always.
 - JeanJean style, always. PR descriptions, Jira tickets, GitHub comments: concise. People scan: title + a few bullets, link out for details. Cut recap of the obvious, filler, marketing.
 
 # Tools
