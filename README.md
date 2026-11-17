@@ -166,10 +166,12 @@ account) and Codex session whose cwd is in the current repo or one of its
 worktrees, except the caller's own. A Claude session is named by its session
 name, a Codex session by its cmux workspace title. The message is pasted into
 the session's cmux surface; a pane with a draft or an open dialog refuses the
-paste and is reported as `FAIL`. The header `[room ID] Broadcast from Lex`
+paste and is reported as `FAIL`. The header `[room ID] Broadcast from SENDER`
 tells the session the text did not come from its own chat. `--to NAME` (repeatable) limits it to named sessions.
-The sender is the Claude or Codex lane the command runs under, else Lex; a script with no lane above it (a detached
-loop) names itself with `LC_ROOM_FROM=NAME`.
+SENDER is `LC_ROOM_FROM` when set, else the Claude or Codex lane the command runs under, else `Lex` when stdin is
+a terminal, else `a script`. A detached loop names itself with `LC_ROOM_FROM=NAME`.
+A Claude lane skips the Claude sessions on its own account and lists them as `same account, use SendMessage
+instead`: SendMessage reaches those directly. Lex, a script and Codex reach every session.
 
 A session answers with `lc reply ID "text"`, never in its own chat. Replies
 are appended to `~/.claude/lex-claude/state/room/ID.log`. In a terminal the
@@ -250,7 +252,7 @@ lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
 lc room [ID]                                       # full-screen rooms: new message, answer a session, jump to its tab
-lc room [--to NAME]... [--wait MIN] MESSAGE        # message every live session of this repo
+lc room [--to NAME]... [--wait MIN] MESSAGE        # message live sessions of this repo (a lane skips its own account)
 lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
 lc reply ID TEXT                                   # answer a room message (run by the receiving session)
 lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt

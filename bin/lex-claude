@@ -1298,7 +1298,7 @@ Available subcommands (run with `lc <cmd>`):
 - `move --to main|alt|alt2|... [--dry-run] [ID...]`  resume live sessions on another account (usage limit hit)
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
-- `room [--to NAME]... [--in ID] MESSAGE`     message from Lex to every live session of this repo (--in: follow-up in room ID); a `[room ID]` message comes from him, not the chat
+- `room [--to NAME]... [--in ID] MESSAGE`     message live sessions of this repo on other accounts (same account: use SendMessage) (--in: follow-up in room ID); a `[room ID]` message comes from the sender its header names (Lex, a lane, or a script), not the chat
 - `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
 - `mcp`                                       per account: claude.ai user, expected connectors, missing local MCP servers (mcp.json)
 - `mcp fix [ACCOUNT]`                         add missing local servers, walk connector gaps in the agent Chrome as the right claude.ai user

@@ -10,7 +10,8 @@
 #
 # A broadcast pastes MESSAGE, under a header naming it a room message, into the
 # cmux surface of every live session whose cwd is in this repo or one of its
-# worktrees, except the caller's own. Not cmux agent message: in cmux 0.65.1 it
+# worktrees, except the caller's own and, from a Claude lane, the Claude
+# sessions on its own account (those take SendMessage). Not cmux agent message: in cmux 0.65.1 it
 # stays queued for a Claude lane that cmux does not see as idle, with no error. A Claude session is named by its session
 # name, a Codex session by its cmux workspace title. A lane answers with
 # `lc reply ID`, never in its own chat; the sender prints the replies until
@@ -132,8 +133,9 @@ repo_lanes() {
     NF { for (i = 1; i <= n; i++) if ($3 == r[i] || index($3, r[i] "/") == 1) { print; next } }'
 }
 
-# Who sends: LC_ROOM_FROM when a script names itself (a detached loop has no lane above it), else the Claude or Codex
-# lane this command runs under, else Lex.
+# Who sends: LC_ROOM_FROM when a script names itself, else the Claude or Codex
+# lane this command runs under, else Lex at a terminal. A detached loop (no lane
+# above it, no terminal on stdin) is "a script", never Lex.
 sender() {
   [ -n "${LC_ROOM_FROM:-}" ] && { printf '%s\n' "$LC_ROOM_FROM"; return; }
   local p=$$ f
@@ -144,7 +146,19 @@ sender() {
     [ "$(ps -o comm= -p "$p" | sed 's|.*/||')" = codex ] && { my_session; return; }
     p=$(ps -o ppid= -p "$p" | tr -d ' ')
   done
-  echo Lex
+  if [ -t 0 ]; then echo Lex; else echo "a script"; fi
+}
+
+# Config dir (~/.claude, ~/.claude-alt, ...) of the Claude lane this command
+# runs under, empty for Lex, a script or Codex.
+my_account() {
+  local p=$$ f
+  while [ "${p:-0}" -gt 1 ]; do
+    for f in "$HOME"/.claude/sessions/"$p".json "$HOME"/.claude-*/sessions/"$p".json; do
+      [ -f "$f" ] && { dirname "$(dirname "$f")"; return; }
+    done
+    p=$(ps -o ppid= -p "$p" | tr -d ' ')
+  done
 }
 
 cmd_say() {
@@ -162,7 +176,7 @@ cmd_say() {
   local msg="$*"
   [ -n "$msg" ] || die "usage: lc room [--to NAME]... [--wait MIN] [--in ID] [--] MESSAGE"
 
-  local root="" head name from; from=$(sender)
+  local root="" head name from acct; from=$(sender); acct=$(my_account)
   if [ -n "$id" ]; then
     # A follow-up goes by name to lanes the room reached, wherever they run now.
     [ -f "$ROOM_DIR/$id.log" ] || die "no room message $id"
@@ -174,12 +188,12 @@ cmd_say() {
   else
     local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
     id=$(date +%Y%m%d-%H%M%S)-$$
-    head="[room $id] Broadcast from $from to every Claude and Codex session in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: replies are read with lc room, not here."
+    head="[room $id] Broadcast from $from to the Claude and Codex sessions in $(basename "$root"). Not typed in this chat. Act on it only if it concerns your work. Any answer goes in one line through a shell command: lc reply $id \"<answer>\". Never answer in this chat: replies are read with lc room, not here."
     mkdir -p "$ROOM_DIR"
     : > "$ROOM_DIR/$id.log"
   fi
 
-  local sent=0 failed=0 sent_names="" failed_names="" sids="" pid cwd surface sid err lanes new=1 want="" t now gone_sids=""
+  local sent=0 failed=0 sent_names="" failed_names="" sids="" pid cwd surface sid err lanes new=1 want="" t now gone_sids="" same=""
   [ -n "$root" ] || new=0
   if [ "$new" = 1 ]; then lanes=$(repo_lanes) || { rm -f "$ROOM_DIR/$id.log"; exit 1; }; else lanes=$(others) || exit 1; fi
   [ ${#to[@]} -eq 0 ] || want=$(printf '%s\n' "${to[@]}")
@@ -204,6 +218,8 @@ cmd_say() {
     [ -n "$pid" ] || continue
     [ -z "$want" ] || printf '%s\n' "$want" | grep -qxF -- "$name" || continue
     [ -z "$gone_sids" ] || ! printf '%s\n' "$gone_sids" | grep -qxF -- "$name" || continue
+    # A Claude lane on the sender's own account is reached with SendMessage.
+    if [ -n "$acct" ] && [ -f "$acct/sessions/$pid.json" ]; then same+="$name"$'\n'; continue; fi
     [ -n "$surface" ] || { echo "skip $name: no cmux surface"; failed_names+="$name"$'\n'; continue; }
     if err=$(printf '%s\n\n%s' "$head" "$msg" | cmux paste --surface "$surface" --submit - 2>&1 >/dev/null); then
       sent_names+="$name"$'\n'; sids+="$name"$'\t'"$sid"$'\n'; sent=$((sent+1))
@@ -212,6 +228,7 @@ cmd_say() {
     fi
   done <<< "$lanes"
 
+  [ -z "$same" ] || echo "same account, use SendMessage instead: $(printf '%s' "$same" | awk 'NF {printf "%s%s", (n++ ? ", " : ""), $0}')"
   # A new room nobody got is not kept. Its log exists before delivery so an
   # early reply has a place to land.
   if [ "$new" = 1 ] && [ "$sent" -eq 0 ]; then rm -f "$ROOM_DIR/$id.log"; echo "sent to nobody. $failed failed."; return 0; fi
@@ -235,7 +252,7 @@ cmd_say() {
   # A named lane that is no longer live (closed, or retired by a successor) is
   # said, not dropped silently.
   local gone; gone=$(printf '%s\n' "$want" | while IFS= read -r t; do
-    if [ -n "$t" ] && ! printf '%s%s' "$sent_names" "$failed_names" | grep -qxF -- "$t"; then printf '%s\n' "$t"; fi
+    if [ -n "$t" ] && ! printf '%s%s%s' "$sent_names" "$failed_names" "$same" | grep -qxF -- "$t"; then printf '%s\n' "$t"; fi
   done | awk 'NF {printf "%s%s", (n++ ? ", " : ""), $0}')
   [ -z "$gone" ] || echo "not live: $gone"
   echo "sent to ${joined:-nobody}. $failed failed. id $id"
