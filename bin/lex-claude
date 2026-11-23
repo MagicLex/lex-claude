@@ -96,7 +96,7 @@ Usage:
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
   lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Paste a room message into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
-  lex-claude lane [--account NAME] [TASK]                       Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt.
+  lex-claude lane [--account NAME] [TASK | -]                   Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt. -: the task from stdin.
   lex-claude mcp                                                Report each account's claude.ai user, expected connectors and local MCP servers (mcp.json).
   lex-claude mcp fix [ACCOUNT]                                  Add missing local servers, then walk connector gaps in the agent Chrome as the right claude.ai user.
   lex-claude doctor             Sanity-check the install.
@@ -192,7 +192,9 @@ EOF
   mkdir -p "$(dirname "$cfg")"
   [ -f "$cfg" ] || echo '{}' > "$cfg"
   out=$(mktemp) || return 1
-  if jq --arg p "$AGENT_CHROME_PORT" '.cdp = $p' "$cfg" > "$out" && mv "$out" "$cfg"; then
+  # A daemon attached with --cdp never exits without an explicit idleTimeout (agent-browser's
+  # default exempts attached browsers), and each one holds a session on every page.
+  if jq --arg p "$AGENT_CHROME_PORT" '.cdp = $p | .idleTimeout //= "1h"' "$cfg" > "$out" && mv "$out" "$cfg"; then
     echo "agent-chrome: port $AGENT_CHROME_PORT, profile $AGENT_CHROME_PROFILE, agent-browser cdp set in $cfg"
   else
     rm -f "$out"; echo "warn: jq patch of $cfg failed"; return 1
@@ -1299,7 +1301,7 @@ Available subcommands (run with `lc <cmd>`):
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
 - `room [--to NAME]... [--in ID] MESSAGE`     message live sessions of this repo on other accounts (same account: use SendMessage) (--in: follow-up in room ID); a `[room ID]` message comes from the sender its header names (Lex, a lane, or a script), not the chat
-- `lane [--account NAME] [TASK]`             start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in
+- `lane [--account NAME] [TASK | -]`         start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in; `-` reads TASK from stdin (`lc lane - <<'EOF'`), so backticks in it stay text
 - `mcp`                                       per account: claude.ai user, expected connectors, missing local MCP servers (mcp.json)
 - `mcp fix [ACCOUNT]`                         add missing local servers, walk connector gaps in the agent Chrome as the right claude.ai user
 - `init zsh|bash`                             output shell completion

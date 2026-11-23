@@ -2,10 +2,15 @@
 # Start a new lane: a Claude session in a new cmux workspace at the repo root,
 # whose first prompt is the repo's docs/LANE.md with TASK filled in.
 #
-#   lane.sh [--account main|alt|alt2|...] [TASK]
+#   lane.sh [--account main|alt|alt2|...] [TASK | -]
+#   lane.sh - <<'EOF'
+#   ...task...
+#   EOF
 #
 # docs/LANE.md is the project's kickoff text; "{task}" in it is replaced by
-# TASK, or by "open TODO work" without one. Without --account the lane runs on
+# TASK, or by "open TODO work" without one. TASK "-" reads it from stdin: a
+# task on the command line goes through the caller's shell, which runs its
+# backticks and $( ) first, so quote the heredoc. Without --account the lane runs on
 # the caller's account (CLAUDE_CONFIG_DIR).
 set -euo pipefail
 
@@ -23,7 +28,12 @@ command -v cmux >/dev/null || die "cmux missing"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
 [ -f "$root/docs/LANE.md" ] || die "no $root/docs/LANE.md: the kickoff text for a lane"
 
-task="${*:-open TODO work}"
+if [ "$*" = - ]; then
+  task=$(cat)
+  [ -n "${task//[[:space:]]/}" ] || die "empty task on stdin"
+else
+  task="${*:-open TODO work}"
+fi
 dir="$HOME/.claude/lex-claude/state/lane"; mkdir -p "$dir"
 id=$(date +%Y%m%d-%H%M%S)-$$
 TASK="$task" python3 -c 'import os,sys; sys.stdout.write(open(sys.argv[1]).read().replace("{task}", os.environ["TASK"]))' \

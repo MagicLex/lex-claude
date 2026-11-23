@@ -225,7 +225,9 @@ lists on one line are joined with `, `.
 
 `lc lane [TASK]` opens a new cmux workspace at the repo root running `lc claude`,
 with the repo's `docs/LANE.md` as the first prompt. `{task}` in that file is
-replaced by TASK, or by "open TODO work" without one. The kickoff text lives in
+replaced by TASK, or by "open TODO work" without one. `lc lane -` reads TASK from
+stdin; with a quoted heredoc (`lc lane - <<'EOF'`) its backticks and `$( )` stay
+text instead of running in the caller's shell. The kickoff text lives in
 the project, next to its team rules. `--account main|alt|alt2|...` picks the
 Claude account (same names as `lc move`); without it the lane runs on the
 caller's account.
@@ -255,7 +257,7 @@ lc room [ID]                                       # full-screen rooms: new mess
 lc room [--to NAME]... [--wait MIN] MESSAGE        # message live sessions of this repo (a lane skips its own account)
 lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
 lc reply ID TEXT                                   # answer a room message (run by the receiving session)
-lc lane [--account NAME] [TASK]                    # start a lane with the repo's docs/LANE.md as first prompt
+lc lane [--account NAME] [TASK | -]                # start a lane with the repo's docs/LANE.md as first prompt; - reads TASK from stdin
 lc mcp [fix [ACCOUNT]]                             # MCP connectors and local servers per account, from mcp.json
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
@@ -283,7 +285,7 @@ Run inside the venv where `hops` lives (uv targets the active env). Skill relink
 `lc install`/`lc update` (macOS) runs a dedicated Chrome for agent-browser:
 
 - LaunchAgent `~/Library/LaunchAgents/com.lex-claude.agent-chrome.plist` (`RunAtLoad`, `KeepAlive`) starts real Chrome with `--remote-debugging-port=9333 --user-data-dir=~/.chrome-agent`. Port override: `LEX_CLAUDE_AGENT_CHROME_PORT`.
-- `~/.agent-browser/config.json` gets `"cdp": "<port>"`, so every `agent-browser` call attaches there with no flag.
+- `~/.agent-browser/config.json` gets `"cdp": "<port>"`, so every `agent-browser` call attaches there with no flag, and `"idleTimeout": "1h"` unless it holds one: a daemon attached with `--cdp` never exits without it.
 
 The `chrome://inspect` toggle (Chrome 144+) asks "Allow remote debugging?" on every new CDP connection, and agent-browser up to v0.38.2 deletes `DevToolsActivePort` while that prompt is pending ([#2041](https://github.com/vercel-labs/agent-browser/issues/2041)). The port flag has no prompt. Since Chrome 136 it needs a non-default `--user-data-dir` ([Chrome blog](https://developer.chrome.com/blog/remote-debugging-port)), so logins live in `~/.chrome-agent`: log in once in that window.
 
