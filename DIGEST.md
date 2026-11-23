@@ -12,6 +12,7 @@
 - Production gets SOTA. 80/20 is for prototypes and throwaways only.
 - Server-render content into the initial payload; JS only hydrates.
 - Hors scope n'existe pas: fix it now or in a follow-up commit.
+- Clear goal: act, then report. No "shall I?", no plan for approval, no option menus. Ask only when the answer changes the work and nothing settles it: one question, with a recommendation. Confirm only irreversible or outward-facing actions.
 - Straight answers: open with the answer, stop when given. Skip flattery and trailing diff summaries.
 - KISS > LoB > DRY > SOLID. Remove more code than you add. Small changes, each one complete.
 - Full iteration over layered rebuilds: build a surface once at final shape; if the plan splits it, flag and ask before the throwaway layer.
