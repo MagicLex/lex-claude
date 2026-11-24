@@ -77,11 +77,17 @@ live() {
   command -v cmux >/dev/null || die "cmux missing"
   local procs surfaces codex titles top f pid cwd name kind surface
   # JSON, not --format tsv: cmux 0.65.1 TSV drops the process rows.
-  top=$(cmux --json top --all --processes) || die "cmux top failed"
-  procs=$(printf '%s\n' "$top" | jq -r '.. | objects
-    | select((.ref? // "") | startswith("surface:")) | .ref as $s
-    | .processes[]? | .. | objects | select(.kind? == "process") | "\(.pid)\t\($s)\t\(.name)"')
-  [ -n "$procs" ] || die "cmux top listed no processes, nothing to map sessions to"
+  # cmux top now and then answers with no process rows for a few seconds.
+  local try
+  for try in 1 2 3 4 5; do
+    top=$(cmux --json top --all --processes) || die "cmux top failed"
+    procs=$(printf '%s\n' "$top" | jq -r '.. | objects
+      | select((.ref? // "") | startswith("surface:")) | .ref as $s
+      | .processes[]? | .. | objects | select(.kind? == "process") | "\(.pid)\t\($s)\t\(.name)"')
+    [ -n "$procs" ] && break
+    sleep 2
+  done
+  [ -n "$procs" ] || die "cmux top listed no processes after 5 tries, nothing to map sessions to"
   surfaces=$(printf '%s\n' "$procs" | awk -F'\t' '{print $1" "$2}')
   codex=$(printf '%s\n' "$procs" | awk -F'\t' '$3=="codex" {print $1" "$2}' | sort -u)
   titles=$(cmux --json tree --all | jq -r '.windows[].workspaces[] | .title as $t
