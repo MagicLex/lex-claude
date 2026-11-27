@@ -2,10 +2,13 @@
 # Move live Claude Code sessions to another account, in their own cmux
 # surfaces, so work survives one account hitting its usage limit.
 #
-#   move.sh --to main|alt|alt2|... [--dry-run] [<session-id>...]
+#   move.sh --to main|alt|alt2|... [--dry-run] [--message TEXT] [<session-id>...]
+#   move.sh --restart [--dry-run] [--message TEXT] [<session-id>...]
 #
 # Accounts: main is ~/.claude, <name> is ~/.claude-<name>. Sources are every
-# other account.
+# other account. --restart resumes each session on its own account instead, in
+# place, so a fresh process loads changed hooks, config and environment.
+# --message replaces the kickoff prompt the resumed session gets.
 #
 # Per session: link its transcript into the target account's projects dir (a
 # symlink, so both accounts append to one file and the move can be reversed),
@@ -23,24 +26,34 @@ KICK="Moved to the other Claude account: the previous one hit its usage limit. B
 
 die() { echo "move: $*" >&2; exit 1; }
 
-to="" dry=0 ids=()
+to="" dry=0 restart=0 msg="" ids=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --to) to="${2:-}"; shift 2 ;;
+    --restart) restart=1; shift ;;
+    --message) msg="${2:-}"; [ -n "$msg" ] || die "--message needs text"; shift 2 ;;
     --dry-run) dry=1; shift ;;
     -*) die "unknown flag $1" ;;
     *) ids+=("$(printf '%s' "$1" | tr 'a-z' 'A-Z')"); shift ;;
   esac
 done
 acct_dir() { case "$1" in main) echo "$MAIN_DIR" ;; alt) echo "$ALT_DIR" ;; *) echo "$HOME/.claude-$1" ;; esac; }
-case "$to" in
-  "") die "usage: move.sh --to main|alt|alt2|... [--dry-run] [<session-id>...]" ;;
-  # Unset, not set to ~/.claude: credentials are keyed on the config dir, so an
-  # explicit default path would not find the main login.
-  main) dst="$MAIN_DIR"; launch="env -u CLAUDE_CONFIG_DIR lex-claude claude" ;;
-  *) dst=$(acct_dir "$to"); launch="CLAUDE_CONFIG_DIR=$dst lex-claude claude" ;;
-esac
-[ -d "$dst" ] || die "$dst missing; set up the account first (README: Additional Claude accounts)"
+# Unset, not set to ~/.claude: credentials are keyed on the config dir, so an
+# explicit default path would not find the main login.
+launch_for() { if [ "$1" = "$MAIN_DIR" ]; then echo "env -u CLAUDE_CONFIG_DIR lex-claude claude"; else echo "CLAUDE_CONFIG_DIR=$1 lex-claude claude"; fi; }
+if [ "$restart" = 1 ]; then
+  [ -z "$to" ] || die "--restart keeps each session on its own account: no --to"
+  dst=""
+  KICK="Restarted in place so a fresh process loads the changed hooks and environment. Background agents, shells and monitors from before did not survive: relaunch what is still needed, take your claims again, then carry on."
+else
+  case "$to" in
+    "") die "usage: move.sh --to main|alt|alt2|... | --restart [--dry-run] [--message TEXT] [<session-id>...]" ;;
+    main) dst="$MAIN_DIR" ;;
+    *) dst=$(acct_dir "$to") ;;
+  esac
+  [ -d "$dst" ] || die "$dst missing; set up the account first (README: Additional Claude accounts)"
+fi
+[ -z "$msg" ] || KICK=$msg
 command -v jq >/dev/null || die "jq missing"
 command -v cmux >/dev/null || die "cmux missing: no surface to resume in"
 
@@ -65,7 +78,7 @@ trusted() {  # trusted <config-dir> <cwd>: the cwd or a parent accepted the trus
 
 srcs=()
 for d in "$MAIN_DIR" "$ALT_DIR" "$HOME"/.claude-*; do
-  [ -d "$d/sessions" ] && [ "$d" != "$dst" ] || continue
+  [ -d "$d/sessions" ] && [ "$d" != "${dst:-}" ] || continue
   case " ${srcs[*]-} " in *" $d "*) ;; *) srcs+=("$d") ;; esac
 done
 
@@ -73,6 +86,8 @@ moved=0
 for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done); do
   [ -f "$f" ] || continue
   src="${f%/sessions/*}"
+  if [ "$restart" = 1 ]; then tgt=$src; else tgt=$dst; fi
+  launch=$(launch_for "$tgt")
   pid=$(jq -r '.pid // empty' "$f"); id=$(jq -r '.sessionId // empty' "$f" | tr 'a-z' 'A-Z')
   cwd=$(jq -r '.cwd // empty' "$f"); name=$(jq -r '.name // "?"' "$f")
   [ -n "$pid" ] && [ -n "$id" ] && [ -n "$cwd" ] && kill -0 "$pid" 2>/dev/null || continue
@@ -89,9 +104,9 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
     echo "skip $name: no cmux surface. Stop it, then run in $cwd: $launch --resume $sid"
     continue
   fi
-  if [ "$dry" = 1 ]; then echo "would move $name ($sid) on $surface"; continue; fi
+  if [ "$dry" = 1 ]; then echo "would $([ "$restart" = 1 ] && echo restart || echo move) $name ($sid) on $surface"; continue; fi
 
-  tdir="$dst/projects/$(slug "$cwd")"; mkdir -p "$tdir"
+  tdir="$tgt/projects/$(slug "$cwd")"; mkdir -p "$tdir"
   [ -e "$tdir/$jsonl" ] || ln -s "$pdir/$jsonl" "$tdir/$jsonl"
   [ ! -d "$pdir/$sid" ] || [ -e "$tdir/$sid" ] || ln -s "$pdir/$sid" "$tdir/$sid"
   # Not gated on the target's own trust: Claude Code 2.1.316 still prompted for
@@ -102,7 +117,7 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
   for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid"; sleep 1; fi
 
-  cmux send --surface "$surface" "$launch --resume $sid \"$KICK\"" >/dev/null
+  cmux send --surface "$surface" "$launch --resume $sid $(printf '%q' "$KICK")" >/dev/null
   cmux send-key --surface "$surface" Enter >/dev/null
 
   # The target account asks for folder trust once per project. Accept it only
@@ -115,10 +130,11 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
       cmux send-key --surface "$surface" Enter >/dev/null
       accept=0
     fi
-    if jq -r '.sessionId // empty' "$dst"/sessions/*.json 2>/dev/null | grep -qix "$sid"; then ok=1; break; fi
+    # A restart is done once a new live pid serves the session; the old file may linger.
+    if (for s in "$tgt"/sessions/*.json; do [ "$(jq -r '.sessionId // empty' "$s" 2>/dev/null | tr 'a-z' 'A-Z')" = "$id" ] && p2=$(jq -r '.pid // empty' "$s") && [ "$p2" != "$pid" ] && kill -0 "$p2" 2>/dev/null && exit 0; done; exit 1); then ok=1; break; fi
     sleep 2
   done
-  if [ "$ok" = 1 ]; then echo "moved $name ($sid) to $to on $surface"; moved=$((moved+1))
-  else echo "FAIL $name ($sid): not running under $dst after 90s; check $surface"; fi
+  if [ "$ok" = 1 ]; then echo "$([ "$restart" = 1 ] && echo restarted || echo moved) $name ($sid) on $surface"; moved=$((moved+1))
+  else echo "FAIL $name ($sid): not running under $tgt after 90s; check $surface"; fi
 done
-[ "$dry" = 1 ] || echo "$moved session(s) moved to $to."
+[ "$dry" = 1 ] || echo "$moved session(s) $([ "$restart" = 1 ] && echo restarted || echo "moved to $to")."

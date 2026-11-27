@@ -93,6 +93,7 @@ Usage:
   lex-claude usage                                   Report which commands/skills get used (and which never do). Debloat aid.
   lex-claude tokens [--session ID] [--json]            Show measured Codex context tokens and the handoff threshold.
   lex-claude move --to main|alt|alt2|... [--dry-run] [ID...]    Resume live sessions on another account in their cmux surfaces.
+  lex-claude move --restart [--message TEXT] [ID...]            Restart live sessions in place, each on its own account. --message: the kickoff prompt.
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
   lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Paste a room message into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
@@ -1303,6 +1304,7 @@ Available subcommands (run with `lc <cmd>`):
 - `codex --print [--lite|--full] [prompt]`    print the generated Codex prompt
 - `tokens [--session ID] [--json]`           measured Codex context usage and handoff threshold
 - `move --to main|alt|alt2|... [--dry-run] [ID...]`  resume live sessions on another account (usage limit hit)
+- `move --restart [--message TEXT] [ID...]`   restart live sessions in place on their own account, so they load changed hooks and env (team mode switched on)
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
 - `room [--to NAME]... [--in ID] MESSAGE`     message live sessions of this repo on other accounts (same account: use SendMessage) (--in: follow-up in room ID); a `[room ID]` message comes from the sender its header names (Lex, a lane, or a script), not the chat

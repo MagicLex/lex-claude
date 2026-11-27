@@ -288,6 +288,7 @@ lc codex [--lite|--full] [prompt]                  # launch Codex with lex-claud
 lc codex --print [--lite|--full] [prompt]          # inspect the generated Codex prompt without launching
 lc tokens [--session ID] [--json]                 # Codex context usage and handoff threshold
 lc move --to <account> [--dry-run] [ID...]         # resume live sessions on another account
+lc move --restart [--message TEXT] [ID...]         # restart live sessions in place, each on its own account (fresh hooks and env)
 lc room [ID]                                       # full-screen rooms: new message, answer a session, jump to its tab
 lc room [--to NAME]... [--wait MIN] MESSAGE        # message live sessions of this repo (a lane skips its own account)
 lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
