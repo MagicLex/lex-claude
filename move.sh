@@ -7,7 +7,11 @@
 #
 # Accounts: main is ~/.claude, <name> is ~/.claude-<name>. Sources are every
 # other account. --restart resumes each session on its own account instead, in
-# place, so a fresh process loads changed hooks, config and environment.
+# place, so a fresh process loads changed hooks, config and environment. It
+# restarts only idle sessions (the session file's status) and skips a busy one;
+# a session named by id may also read "shell" (its turn ended, a background
+# shell of its own runs). A session holding the team role gate or memory
+# restarts only when named by id.
 # --message replaces the kickoff prompt the resumed session gets.
 #
 # Per session: link its transcript into the target account's projects dir (a
@@ -44,7 +48,7 @@ launch_for() { if [ "$1" = "$MAIN_DIR" ]; then echo "env -u CLAUDE_CONFIG_DIR le
 if [ "$restart" = 1 ]; then
   [ -z "$to" ] || die "--restart keeps each session on its own account: no --to"
   dst=""
-  KICK="Restarted in place so a fresh process loads the changed hooks and environment. Background agents, shells and monitors from before did not survive: relaunch what is still needed, take your claims again, then carry on."
+  KICK="Restarted in place so a fresh process loads the changed hooks and environment. Background agents, shells and monitors from before did not survive: relaunch what is still needed, run your lc claim take again for each claim you hold, then carry on."
 else
   case "$to" in
     "") die "usage: move.sh --to main|alt|alt2|... | --restart [--dry-run] [--message TEXT] [<session-id>...]" ;;
@@ -99,12 +103,24 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
   jsonl=$(ls "$pdir" 2>/dev/null | grep -ix "$id.jsonl" | head -1) || true
   [ -n "$jsonl" ] || { echo "skip $name: no transcript under $pdir"; continue; }
   sid="${jsonl%.jsonl}"   # on-disk case, as --resume expects
+  status=$(jq -r '.status // "?"' "$f")
+  if [ "$restart" = 1 ]; then
+    # A restart ends the process: a busy one would lose its tool call and subagents part-way.
+    # "shell": the turn ended but a background shell of its own still runs; restarted only when named by id.
+    named=0; case " ${ids[*]-} " in *" $id "*) named=1 ;; esac
+    case "$status:$named" in idle:*|shell:1) ;; *) echo "skip $name: $status"; continue ;; esac
+    common=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)
+    role=$(cat "$common/lc-team/roles/$id" 2>/dev/null || true)
+    case "$role" in gate|memory)
+      [ "$named" = 1 ] || { echo "skip $name: team role $role, restarted only by id"; continue; } ;;
+    esac
+  fi
   surface=$(printf '%s\n' "$surfaces" | awk -v p="$pid" '$1==p {print $2; exit}')
   if [ -z "$surface" ]; then
     echo "skip $name: no cmux surface. Stop it, then run in $cwd: $launch --resume $sid"
     continue
   fi
-  if [ "$dry" = 1 ]; then echo "would $([ "$restart" = 1 ] && echo restart || echo move) $name ($sid) on $surface"; continue; fi
+  if [ "$dry" = 1 ]; then echo "would $([ "$restart" = 1 ] && echo restart || echo move) $name ($sid, $status) on $surface"; continue; fi
 
   tdir="$tgt/projects/$(slug "$cwd")"; mkdir -p "$tdir"
   [ -e "$tdir/$jsonl" ] || ln -s "$pdir/$jsonl" "$tdir/$jsonl"
@@ -113,6 +129,10 @@ for f in $(for d in "${srcs[@]-}"; do ls "$d"/sessions/*.json 2>/dev/null; done)
   # a folder whose parent the target had accepted.
   accept=0; trusted "$src" "$cwd" && accept=1
 
+  # Read again right before the kill: the session may have taken a new turn since.
+  if [ "$restart" = 1 ]; then
+    case "$(jq -r '.status // "?"' "$f"):$named" in idle:*|shell:1) ;; *) echo "skip $name: busy again"; continue ;; esac
+  fi
   kill -TERM "$pid" 2>/dev/null || true
   for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
   if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid"; sleep 1; fi
