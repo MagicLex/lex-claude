@@ -15,8 +15,8 @@ import tempfile
 import time
 import unittest
 
-# Every run below gets the one resource the tests use; the real list comes from a repo's .claude/team.json.
-os.environ["CLAIM_RESOURCES"] = "cluster"
+# Every run below gets the resources the tests use ("nope" stays unknown); the real list comes from a repo's .claude/team.json.
+os.environ["CLAIM_RESOURCES"] = "cluster,train"
 CLAIM = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "team", "claim.py")
 
 
