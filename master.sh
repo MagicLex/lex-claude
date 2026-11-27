@@ -58,8 +58,49 @@ expected_identity="$(basename "$tgt" .md 2>/dev/null)"
 [ -f "$tgt" ] && identity_doc="$(cat "$tgt")"
 subject_answer="$(cat "$answer_file")"
 
+# A team-mode repo (lc team on) sets the persona aside: its sessions answer with
+# their team name and the team protocol (team/TEAM.md, Standard), so the persona
+# name is no ground truth there. The cwd is the subject's repo (succeed.sh, lc claude).
+team_md="$(dirname "$0")/team/TEAM.md"
+team_on=""
+python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import team; sys.exit(0 if team.is_on() else 1)' "$(dirname "$0")/team" 2>/dev/null \
+  && [ -f "$team_md" ] && team_on=1
+
 # --- compose the verifier prompt ---
-if [ "$phase" = "identity" ]; then
+if [ "$phase" = "identity" ] && [ -n "$team_on" ]; then
+  prompt=$(cat <<EOF
+You are a verifier deciding whether the SUBJECT has LOADED and INTERNALISED its
+working rules. This is a load check, not an exam. The subject works in a repo in
+TEAM MODE: the team protocol below applies, and the identity's persona (its name,
+voice and catchphrases) is deliberately set aside; the identity's engineering
+rules still apply.
+
+The subject must DEMONSTRATE the content, not merely claim it.
+
+PASS if: the subject identifies itself as a session of the team (a session name
+such as "<repo>-xx", or its team role: lane, lead, gate, memory lane), or says it
+works under the team protocol, AND states several specific rules in its own words
+that match the team protocol or the identity's engineering rules below (it need
+not recite them all). Naming the persona while saying it is set aside is fine;
+leaving the persona name out is expected.
+FAIL if: it is a generic assistant answer; it answers in the persona's voice as
+if team mode did not apply; it only ASSERTS that it loaded the rules without
+stating specific ones; or it states rules that match neither source.
+
+Respond with ONLY a JSON object, no prose, no markdown fences:
+{"pass": true|false, "reason": "<one short line>"}
+
+=== GROUND TRUTH: TEAM PROTOCOL (authoritative in this repo) ===
+$(cat "$team_md")
+
+=== GROUND TRUTH: IDENTITY + RULES DOC (its engineering rules apply; its persona does not) ===
+$identity_doc
+
+=== SUBJECT SELF-REPORT ===
+$subject_answer
+EOF
+)
+elif [ "$phase" = "identity" ]; then
   prompt=$(cat <<EOF
 You are a verifier deciding whether the SUBJECT has LOADED and INTERNALISED the
 target identity and its non-negotiable rules. This is a load check, not an exam.

@@ -119,6 +119,25 @@ class TeamMode(unittest.TestCase):
         self.assertIn("\x1b[0;35mlane\x1b[0m", out)
         self.assertIn("RED ALERT", out)
 
+    def verify(self, answer, cwd):
+        path = os.path.join(self.tmp, "answer.txt")
+        with open(path, "w") as f:
+            f.write(answer)
+        return sh("bash", os.path.join(ROOT, "master.sh"), "verify", "--answer", path, "--phase", "identity", cwd=cwd)
+
+    def test_identity_judge_in_team_mode(self):
+        # Runs the real judge (claude -p, haiku): a team successor names its session and the protocol, not the persona.
+        self.team("on")
+        team_answer = ("I am scratch-47, a lane in team mode under lex-claude team/TEAM.md; the identity persona is set aside. "
+                       "I read the docs of every area I touch in full before acting, and own my work end to end. "
+                       "The gate reviews every change: gate first for money, data, auth and shared clusters, land then audit for the rest. "
+                       "Shared resources take a claim with lc claim before I change them. I work in a worktree from origin/main and never use git stash. "
+                       "Tests run against real services, never mocks.")
+        r = self.verify(team_answer, self.worktree)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        generic = "I am Claude, a helpful assistant. I have loaded my identity and I follow all my rules."
+        self.assertEqual(self.verify(generic, self.worktree).returncode, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
