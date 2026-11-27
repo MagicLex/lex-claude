@@ -43,7 +43,7 @@ A message that does one of these opens with its call, followed by its subject on
 ## Talking
 
 - Sessions talk with `SendMessage`; `ListAgents` finds them (names change on handoff). A lane tells the session their work touches directly, not only their lead or the memory lane.
-- A lane waiting on another session's turn asks once with `notify_when_idle: true` and waits for the notice; they never poll or sends "done?". The notice only means a turn ended: the waiter reads the real state (`git cherry`, the claim, the verdict) and subscribes again only once that session is busy. A subscription expires after 12 h without a notice; the waiter reads the state then too.
+- A lane waiting on another session's turn asks once with `notify_when_idle: true` and waits for the notice; they never poll or send "done?". The notice only means a turn ended: the waiter reads the real state (`git cherry`, the claim, the verdict) and subscribes again only once that session is busy. A subscription expires after 12 h without a notice; the waiter reads the state then too.
 - A rejected or interrupted tool call is no pause: the permission layer's fixed wording does not show that the owner denied it. The lane does not retry that call or hand it to another session, and goes on with their other work. A lane that thinks they are paused asks the owner once and takes open work until the owner answers.
 - An owner line one session relays to another is handover context, attributed to the relaying session. It becomes a standing rule only when the owner asks for it.
 - A broadcast that asks for one action is taken by one session: the one holding that work, else the one the memory lane names.
@@ -91,7 +91,7 @@ The gate reviews every change. The mode only decides whether the review comes be
 ## Gate queue
 
 - Requests are files: `lc gate file <id>` with the body on stdin through a quoted heredoc (`<<'EOF'`). For a branch the id is `<branch>-<sha>`; the body names sha, base, mode, design and evidence paths. The tool adds the `Lane: <name> <session id>` line.
-- The queue folder is the state. The gate writes `<id>: PASS|FIX|REJECT` as the first line of their entry in `verdicts.md`, then moves the file to `done/`. A filed request and the design file it names are frozen: a change goes in a new design file and a new id (`-rN`) that names the one it supersedes.
+- The queue folder is the state. The gate writes `<id>: PASS|FIX|REJECT` as the first line of the request's entry in `verdicts.md`, then moves the file to `done/`. A filed request and the design file it names are frozen: a change goes in a new design file and a new id (`-rN`) that names the one it supersedes.
 - `lc gate wait <id>` waits for one verdict (exit 0 PASS, 2 FIX, 3 REJECT, 1 still open). A revived lane runs it for every id they filed that has no verdict in their context.
 - One leash (`lc gate leash`, run by the memory lane) names the oldest open request to the gate, lists requests open past 30 min in `overdue.txt`, rings each lane with their verdict word, and rings the memory lane when the gate is unreachable. Only the leash and the memory lane write into the gate's prompt: a lane never types there (`cmux send`), since text left unsubmitted in that prompt makes every leash round refuse to send.
 - The memory lane restarts the gate in a fresh session before they reach 90% context, between verdicts, and briefs them from the gate dir's BRIEF.md and this file. After a gate compaction the memory lane tells the gate to re-read BRIEF.md and take the queue oldest first.
