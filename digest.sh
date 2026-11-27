@@ -6,7 +6,7 @@
 # context by Claude Code.
 #   Cadence: LEX_CLAUDE_DIGEST_EVERY (default 5, 0 = off).
 #   Text:    DIGEST.md next to this script (hand-condensed from RULES.md).
-#   Team:    a cwd with docs/TEAM.md also gets a re-read line.
+#   Team:    a team-mode repo gets a re-read line for team/TEAM.md.
 #   State:   ~/.claude/lex-claude/.digest/<session_id> (prompt counter,
 #            pruned after 7 days).
 # Needs jq (session_id from hook stdin); silent no-op without.
@@ -43,7 +43,7 @@ printf '%s\n' "$count" > "$state" 2>/dev/null || true
 
 printf '===== lex-claude rules digest (periodic recall; full rules were loaded at session start) =====\n'
 sed '/<!--/,/-->/d' "$DIGEST"   # strip the maintenance comment, no need to re-pay it every injection
-# A project's team working rules (docs/TEAM.md) change during a session and are lost across handoffs.
-if [ -n "$cwd" ] && [ -f "$cwd/docs/TEAM.md" ]; then
-  printf '\nTeam rules: re-read %s/docs/TEAM.md now and follow it; brief every subagent and successor to read it first.\n' "$cwd"
+# The team protocol changes during a session and is lost across handoffs.
+if [ -n "$cwd" ] && python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import team; sys.exit(0 if team.is_on(sys.argv[2]) else 1)' "$SELF_DIR/team" "$cwd" 2>/dev/null; then
+  printf '\nTeam mode: re-read %s/team/TEAM.md now and follow it, formally, without the identity persona; brief every subagent and successor to read it first.\n' "$SELF_DIR"
 fi

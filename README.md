@@ -224,13 +224,48 @@ lists on one line are joined with `, `.
 ### Lane
 
 `lc lane [TASK]` opens a new cmux workspace at the repo root running `lc claude`,
-with the repo's `docs/LANE.md` as the first prompt. `{task}` in that file is
-replaced by TASK, or by "open TODO work" without one. `lc lane -` reads TASK from
+with the lane kickoff as the first prompt: `team/LANE.md` in a team-mode repo,
+else the repo's `docs/LANE.md`. `{task}` in it is replaced by TASK, or by
+"open TODO work" without one. `lc lane -` reads TASK from
 stdin; with a quoted heredoc (`lc lane - <<'EOF'`) its backticks and `$( )` stay
-text instead of running in the caller's shell. The kickoff text lives in
-the project, next to its team rules. `--account main|alt|alt2|...` picks the
+text instead of running in the caller's shell. `--account main|alt|alt2|...` picks the
 Claude account (same names as `lc move`); without it the lane runs on the
 caller's account.
+
+### Team mode
+
+`lc team on` puts the repo in the current directory in team mode: its sessions
+work as one team under `team/TEAM.md` (roles, calls, review modes, claims, gate
+queue, review bar). The switch lives in the repo's git common dir
+(`lc-team/on`), so every worktree of the clone shares it and nothing is
+tracked. `lc team on` needs the repo's tracked `.claude/team.json`:
+
+```json
+{
+  "gateDir": "~/.myrepo/gate",
+  "firstReads": ["docs/PHILOSOPHY.md", "docs/TODO.md"],
+  "resources": {"cluster": "the dev cluster for a deploy, a restart or a config change"},
+  "subagentBrief": ["A repo rule every subagent needs."]
+}
+```
+
+In team mode:
+
+- the SessionStart hook names `team/TEAM.md` and the first reads, sets a formal
+  register and sets the identity persona aside (its engineering rules stay);
+- `lc claude` exports `LANGUAGEME_OFF=1`;
+- the statusline shows the session name and role (`lc team role
+  gate|memory|lead|lane`) in place of identity and language, and `RED ALERT`
+  while `lc team alert on` holds;
+- every Agent prompt starts with the TEAM.md subagent brief plus the repo's
+  `subagentBrief` lines (`team/subagent-brief.py`);
+- `lc lane` starts lanes from `team/LANE.md`.
+
+The tools: `lc claim take|release|check|status|whoami` (one holder per
+resource, state in the git common dir's `claims/`), `lc gate file <id>` (body on
+stdin), `lc gate wait <id>`, `lc gate leash`. Tests:
+`python3 tests/integration_claim.py`, run from a Claude or Codex session.
+`lc team off` switches back.
 
 Transcript lookup and successor launches honor `CLAUDE_CONFIG_DIR`. The `lc`
 installer and identity commands manage the shared configuration in `~/.claude`.
@@ -257,7 +292,10 @@ lc room [ID]                                       # full-screen rooms: new mess
 lc room [--to NAME]... [--wait MIN] MESSAGE        # message live sessions of this repo (a lane skips its own account)
 lc room --in ID [--to NAME]... MESSAGE             # follow-up in room ID
 lc reply ID TEXT                                   # answer a room message (run by the receiving session)
-lc lane [--account NAME] [TASK | -]                # start a lane with the repo's docs/LANE.md as first prompt; - reads TASK from stdin
+lc lane [--account NAME] [TASK | -]                # start a lane with the kickoff (team/LANE.md in a team repo, else docs/LANE.md); - reads TASK from stdin
+lc team [on|off]                                   # team mode for this repo; alert on|off, role R, who R, config KEY
+lc claim take|release|check|status|whoami          # claims on the resources in .claude/team.json
+lc gate file ID|wait ID|leash                      # the team gate queue
 lc mcp [fix [ACCOUNT]]                             # MCP connectors and local servers per account, from mcp.json
 lc usage                                           # report which commands + skills get used; never-used = debloat candidates
 lc doctor                                          # check symlinks, hook, skills, PATH (auto-fixes ~/.zshrc / ~/.bashrc)
@@ -485,7 +523,8 @@ lex-claude/
 ├── move.sh                      ← `lc move`: resume live sessions on the other account
 ├── room.sh                      ← `lc room` / `reply`: room messages, follow-ups, threads
 ├── roomtui.py                   ← `lc room` full-screen view
-├── lane.sh                      ← `lc lane`: start a lane from the repo's docs/LANE.md
+├── lane.sh                      ← `lc lane`: start a lane from the kickoff text
+├── team/                        ← team mode: TEAM.md protocol, LANE.md kickoff, team.py, claim.py, gate/, subagent-brief.py
 ├── mcp.sh                       ← `lc mcp`: MCP connectors and servers per account
 ├── mcp.json                     ← expected connectors and local servers
 ├── RULES.md                     ← canonical shared rules

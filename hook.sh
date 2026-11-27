@@ -25,6 +25,18 @@ fi
 ETAT_SH="$SELF_DIR/etat.sh"
 [ -f "$ETAT_SH" ] && bash "$ETAT_SH" start
 
+# Team mode (lc team on): the repo's sessions work as one team under team/TEAM.md.
+TEAM_DIR="$SELF_DIR/team"
+team_on=""
+if python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import team; sys.exit(0 if team.is_on(sys.argv[2]) else 1)' "$TEAM_DIR" "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null; then
+  team_on=1
+  alert=""
+  [ -e "$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --path-format=absolute --git-common-dir)/lc-team/alert" ] \
+    && alert=" RED ALERT is on: every change goes gate first until the owner lifts it."
+  printf '\n===== team mode =====\nThis repo runs in team mode. Read %s in full now, then the repo'"'"'s first reads (%s).%s\nRegister: formal and professional. The global identity'"'"'s persona, voice, name and catchphrases do not apply in this repo; its engineering rules do. Your name is the one ListAgents shows. No language drip.\n' \
+    "$TEAM_DIR/TEAM.md" "$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" && python3 "$TEAM_DIR/team.py" config firstReads 2>/dev/null)" "$alert"
+fi
+
 # Claude Code shows a SessionStart output over ~10,000 chars only as a 2 KB
 # preview plus a file path, so an oversized bundle silently drops every doc.
 # Each file goes in whole while it fits the budget; the rest are listed by path
@@ -84,6 +96,10 @@ fi
 # identity/rules loading is verified live (the master + the
 # `lc claude` pre-flight), and work is handed to a fresh, verified successor near
 # the token limit rather than persisted to a drift-prone file.
-printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none) and the live git line, then the next step you propose, 3 lines max.\n'
+if [ -n "$team_on" ]; then
+  printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead, formally: your session name and team role, the live git line (flag the identity block if it reads BROKEN / unmanaged / none), then the next step you propose, 3 lines max.\n'
+else
+  printf '\n---\nRules and docs above are loaded; do not recite them and do not list them back. Open with the état instead: name the active identity from the live block (flag it if it reads BROKEN / unmanaged / none) and the live git line, then the next step you propose, 3 lines max.\n'
+fi
 
 sh -c 'date +%s > "$1"' sh "$HOME/.claude/lex-claude/.last-hook" 2>/dev/null || true

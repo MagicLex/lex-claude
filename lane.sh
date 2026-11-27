@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Start a new lane: a Claude session in a new cmux workspace at the repo root,
-# whose first prompt is the repo's docs/LANE.md with TASK filled in.
+# whose first prompt is the lane kickoff with TASK filled in: team/LANE.md in a
+# team-mode repo (lc team on), else the repo's docs/LANE.md.
 #
 #   lane.sh [--account main|alt|alt2|...] [TASK | -]
 #   lane.sh - <<'EOF'
@@ -26,7 +27,10 @@ if [ "${1:-}" = --account ]; then
 fi
 command -v cmux >/dev/null || die "cmux missing"
 root=$(git rev-parse --show-toplevel 2>/dev/null) || die "run inside a git repo"
-[ -f "$root/docs/LANE.md" ] || die "no $root/docs/LANE.md: the kickoff text for a lane"
+team="$(cd "$(dirname "$0")" && pwd)/team"
+team_on=""
+python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import team; sys.exit(0 if team.is_on() else 1)' "$team" 2>/dev/null && team_on=1
+[ -n "$team_on" ] || [ -f "$root/docs/LANE.md" ] || die "no $root/docs/LANE.md and team mode is off: no kickoff text for a lane"
 
 if [ "$*" = - ]; then
   task=$(cat)
@@ -36,8 +40,12 @@ else
 fi
 dir="$HOME/.claude/lex-claude/state/lane"; mkdir -p "$dir"
 id=$(date +%Y%m%d-%H%M%S)-$$
-TASK="$task" python3 -c 'import os,sys; sys.stdout.write(open(sys.argv[1]).read().replace("{task}", os.environ["TASK"]))' \
-  "$root/docs/LANE.md" > "$dir/$id.prompt"
+if [ -n "$team_on" ]; then
+  printf '%s' "$task" | python3 "$team/team.py" lane-prompt > "$dir/$id.prompt"
+else
+  TASK="$task" python3 -c 'import os,sys; sys.stdout.write(open(sys.argv[1]).read().replace("{task}", os.environ["TASK"]))' \
+    "$root/docs/LANE.md" > "$dir/$id.prompt"
+fi
 
 {
   printf '#!/bin/bash\n'

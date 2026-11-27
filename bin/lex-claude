@@ -96,7 +96,10 @@ Usage:
   lex-claude reply ID TEXT                                      Answer a room broadcast (run by the receiving session).
   lex-claude room [ID]                                          Full-screen room view: rooms, live threads, new message, answer a lane, jump to its tab. Without a terminal: list rooms, or print ID.
   lex-claude room [--to NAME]... [--wait MIN] [--in ID] MESSAGE Paste a room message into every live Claude and Codex session of this repo and print their replies. --in ID: follow-up to the lanes of room ID.
-  lex-claude lane [--account NAME] [TASK | -]                   Start a Claude lane in a new cmux workspace with the repo's docs/LANE.md as its first prompt. -: the task from stdin.
+  lex-claude lane [--account NAME] [TASK | -]                   Start a Claude lane in a new cmux workspace with the lane kickoff as its first prompt (team/LANE.md in a team repo, else docs/LANE.md). -: the task from stdin.
+  lex-claude team [on|off|alert on|off|role R|who R|config KEY] Team mode for the repo here (team/TEAM.md): status, switch, red alert, session role.
+  lex-claude claim take|release|check|status|whoami|name ...    Claims on a team repo's shared resources (.claude/team.json).
+  lex-claude gate file|wait|leash ...                           The team gate queue: file a request, wait for its verdict, run the leash.
   lex-claude mcp                                                Report each account's claude.ai user, expected connectors and local MCP servers (mcp.json).
   lex-claude mcp fix [ACCOUNT]                                  Add missing local servers, then walk connector gaps in the agent Chrome as the right claude.ai user.
   lex-claude doctor             Sanity-check the install.
@@ -211,6 +214,7 @@ wire_hook() {
   local sucmd="bash $INSTALL_DIR/succeed.sh"
   local ncmd="bash $INSTALL_DIR/cmux-name.sh"
   local rcmd="python3 $INSTALL_DIR/retirement.py hook claude"
+  local bcmd="python3 $INSTALL_DIR/team/subagent-brief.py"
   if ! command -v jq >/dev/null 2>&1; then
     echo "warn: jq missing. add hook manually to $SETTINGS (command: $cmd)"
     return 0
@@ -231,7 +235,7 @@ wire_hook() {
   cp "$SETTINGS" "$bak" 2>/dev/null || true
 
   local out; out=$(mktemp 2>/dev/null) || out="/tmp/lc-settings-out.$$"
-  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg tcmd "$tcmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" --arg rcmd "$rcmd" '
+  if jq --arg cmd "$cmd" --arg wcmd "$wcmd" --arg ucmd "$ucmd" --arg dcmd "$dcmd" --arg scmd "$scmd" --arg tcmd "$tcmd" --arg sucmd "$sucmd" --arg ncmd "$ncmd" --arg rcmd "$rcmd" --arg bcmd "$bcmd" '
     .hooks //= {} |
     .hooks.SessionStart //= [] |
     .hooks.SessionStart = [
@@ -252,10 +256,11 @@ wire_hook() {
     .hooks.PreToolUse //= [] |
     .hooks.PreToolUse = [
       .hooks.PreToolUse[]
-      | select(all(.hooks[]?; (.command // "") | (test("lex-claude/usage") or test("lex-claude/handoff") or test("lex-claude/succeed")) | not))
+      | select(all(.hooks[]?; (.command // "") | (test("lex-claude/usage") or test("lex-claude/handoff") or test("lex-claude/succeed") or test("lex-claude/team/subagent-brief")) | not))
     ] |
     .hooks.PreToolUse += [
-      {"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]}
+      {"matcher":"Skill","hooks":[{"type":"command","command":$ucmd}]},
+      {"matcher":"Agent","hooks":[{"type":"command","command":$bcmd,"timeout":10}]}
     ] |
     .hooks.UserPromptSubmit //= [] |
     .hooks.UserPromptSubmit = [
@@ -1301,7 +1306,10 @@ Available subcommands (run with `lc <cmd>`):
 - `reply ID TEXT`                             answer a `[room ID]` broadcast; never answer one in the chat
 - `room [ID]`                                 Lex's full-screen room view; without a terminal, list rooms or print ID
 - `room [--to NAME]... [--in ID] MESSAGE`     message live sessions of this repo on other accounts (same account: use SendMessage) (--in: follow-up in room ID); a `[room ID]` message comes from the sender its header names (Lex, a lane, or a script), not the chat
-- `lane [--account NAME] [TASK | -]`         start a new lane: cmux workspace + `lc claude` with docs/LANE.md, TASK filled in; `-` reads TASK from stdin (`lc lane - <<'EOF'`), so backticks in it stay text
+- `lane [--account NAME] [TASK | -]`         start a new lane: cmux workspace + `lc claude` with the lane kickoff (team/LANE.md in a team repo, else docs/LANE.md), TASK filled in; `-` reads TASK from stdin (`lc lane - <<'EOF'`), so backticks in it stay text
+- `team [on|off]`                             team mode for this repo (protocol: team/TEAM.md); `alert on|off` red alert (owner's order only); `role gate|memory|lead|lane`; `who ROLE`; `config KEY`
+- `claim take|release|check|status|whoami`    claims on the shared resources in .claude/team.json (`take R "<intent>" [--wait [min]] [--over ID]`)
+- `gate file ID|wait ID|leash`                file a gate request (body on stdin, quoted heredoc), wait for its verdict, run the leash
 - `mcp`                                       per account: claude.ai user, expected connectors, missing local MCP servers (mcp.json)
 - `mcp fix [ACCOUNT]`                         add missing local servers, walk connector gaps in the agent Chrome as the right claude.ai user
 - `init zsh|bash`                             output shell completion
@@ -1502,6 +1510,10 @@ cmd_claude() {
   # A seat launched here is top-level. A child-session marker inherited from a
   # terminal app started inside Claude disables transcript persistence.
   unset CLAUDECODE CLAUDE_CODE_CHILD_SESSION
+  # A team repo runs without the language drip (team/TEAM.md, Standard: register).
+  if python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import team; sys.exit(0 if team.is_on() else 1)' "$INSTALL_DIR/team" 2>/dev/null; then
+    export LANGUAGEME_OFF=1
+  fi
   local _f=()
   [ -f "$MODEL_FILE" ] && _f+=(--model "$(cat "$MODEL_FILE")")
   [ -f "$SKIP_FILE" ] && _f+=(--dangerously-skip-permissions)
@@ -1580,7 +1592,7 @@ cmd_claude() {
 }
 
 case "${1:-}" in
-  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|reply|room|lane|mcp|-v|--version|-h|-help|--help|help|"") ;;
+  install|update|__deploy|identity|rules|model|lang|skip|version|github-login|awake|codex|claude|init|doctor|usage|tokens|move|reply|room|lane|mcp|team|claim|gate|-v|--version|-h|-help|--help|help|"") ;;
   *) auto_update "$@" ;;
 esac
 
@@ -1634,6 +1646,19 @@ case "${1:-}" in
     shift
     lane_sh="$SELF_DIR/lane.sh"; [ -x "$lane_sh" ] || lane_sh="$INSTALL_DIR/lane.sh"
     exec bash "$lane_sh" "$@"
+    ;;
+  team|claim)
+    sub=$1; shift
+    team_dir="$SELF_DIR/team"; [ -d "$team_dir" ] || team_dir="$INSTALL_DIR/team"
+    exec python3 "$team_dir/$sub.py" "$@"
+    ;;
+  gate)
+    shift
+    team_dir="$SELF_DIR/team"; [ -d "$team_dir" ] || team_dir="$INSTALL_DIR/team"
+    case "${1:-}" in
+      file|wait|leash) sub=$1; shift; exec bash "$team_dir/gate/$sub.sh" "$@" ;;
+      *) die "gate file <id> | wait <id> [seconds] | leash" ;;
+    esac
     ;;
   reply|room)
     sub=$1; shift

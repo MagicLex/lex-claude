@@ -49,7 +49,10 @@ git_state() {
 case "${1:-}" in
   start)
     d="${CLAUDE_PROJECT_DIR:-$PWD}"
-    printf '\n===== état (live) =====\n%s\n%s\n' "$(identity_state)" "$(git_state "$d")"
+    ident=$(identity_state)
+    common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    [ -n "$common" ] && [ -e "$common/lc-team/on" ] && ident="$ident (persona off: team mode)"
+    printf '\n===== état (live) =====\n%s\n%s\n' "$ident" "$(git_state "$d")"
     # Persistent project memory recall (live subset, salience-ranked). Fast, no
     # LLM, no embeddings: pure ranking over the stored items. Fail-open.
     MEM="$HOME/.claude/lex-claude/memory.py"

@@ -74,7 +74,7 @@ Steps, in order:
    - **Standing rules from this session go to a file first, never into the
      briefing.** A rule the user gave in chat ("always X", "never Y", "AGAIN")
      that no doc or memory holds yet is written to the project's rule file
-     (docs/TEAM.md or PRINCIPLES.md when the project has one, else memory) before
+     (a project doc such as PRINCIPLES.md when the project has one, else memory) before
      the handoff, as a one-line addition. The briefing names it by `file:line`.
      A paraphrased rule loses detail at every handoff; the file is read verbatim.
 
